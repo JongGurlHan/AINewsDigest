@@ -45,9 +45,15 @@ public record GenerationResult(DigestStatus status, int itemCount,
     **EMPTY는 "끝난 것"이 아니라 step 9의 발송 대상이다.** `sentAt`이 비어 있으므로 07:30에 그대로 발송된다 (PRD: 침묵하지 않는다)
 11. `articleSummarizer.summarize(...)` 로 한글 제목·요약 생성
 12. `digestMessageBuilder.build(date, summarized)` 로 메시지 조립.
-    **빌더가 길이 때문에 항목을 줄였다면(`includedCount`), 저장하는 `DigestItem`도 그 건수에 맞춘다.**
-    이유: 아카이브 웹페이지가 실제 발송 내용과 달라지면 안 된다
-13. `Digest.pending(...)` + `DigestItem`들을 저장한다
+    **저장하는 `DigestItem`은 반드시 `DigestMessage.includedArticles()`로 만든다.** `summarized`를 그대로 쓰지 마라.
+    이유: 빌더는 길이 때문에 항목을 줄일 뿐 아니라 마지막 항목의 요약을 자르기도 한다(step 5).
+    `summarized`로 저장하면 아카이브에는 잘리지 않은 원문이 남아 실제 발송 내용과 달라진다.
+    `includedArticles`는 건수 축소와 요약 절단이 **둘 다** 반영된 결과다
+13. `Digest.pending(...)` + `DigestItem`들을 저장한다.
+    **저장 직전에 컬럼 폭 기준으로 한 번 더 자른다** — `titleKo` 200자, `sourceDomain` 100자.
+    이유: step 2와 step 4가 각자 막고 있지만, 이 저장이 실패하면 그날 다이제스트가 통째로 사라진다.
+    LLM 비용을 전부 지불한 뒤에 잃는 것이라 마지막 관문을 하나 더 두는 값이 싸다.
+    절단은 `offsetByCodePoints`로 코드포인트 경계에서 한다
 
 ### 트랜잭션 경계 — 반드시 지킬 것
 
@@ -86,6 +92,8 @@ DB는 Testcontainers를 쓴다 — `@SpringBootTest` + `@Import(TestcontainersCo
 6. 점수 3점 미만인 후보는 **크롤링되지 않는다** (크롤러 호출 횟수로 검증 — 비용·시간 절감이 ADR-007의 요점이다)
 7. **수집 전면 실패 구분** — 모든 `NewsSource`가 `FetchResult.failure()`를 반환하면 status는 EMPTY지만 `candidateCount == 0`이고 `failedSourceCount == 소스 수`다
 8. 모든 소스가 정상인데 결과만 0건이면 `failedSourceCount == 0`이다 (7번과 구분되어야 한다)
+9. **요약기가 300자짜리 `titleKo`를 돌려줘도 저장이 성공한다** (컬럼 폭 절단 검증)
+10. **빌더가 요약을 자른 경우 저장된 `DigestItem.summaryKo`도 잘려 있다** — 아카이브와 발송분이 일치한다. 페이크 빌더가 잘린 `includedArticles`를 돌려주게 만들어 검증한다
 
 ## Acceptance Criteria
 
@@ -113,4 +121,6 @@ DB는 Testcontainers를 쓴다 — `@SpringBootTest` + `@Import(TestcontainersCo
 - 텔레그램으로 발송하지 마라. 이유: step 9의 범위다. 이 step은 PENDING 상태로 저장만 한다
 - `@Scheduled`를 붙이지 마라. 이유: step 11의 범위다
 - 후보 기사 전체를 DB에 저장하지 마라. 이유: PRD MVP 제외 사항이다
+- 요약기가 돌려준 `summarized`를 그대로 저장하지 마라. 이유: 빌더의 건수 축소와 요약 절단이 반영되지 않아 아카이브가 실제 발송 내용과 달라진다. `DigestMessage.includedArticles()`를 저장한다
+- 컬럼 폭 절단을 "step 4가 이미 했으니 생략"하지 마라. 이유: 이 저장이 실패하면 LLM 비용을 전부 쓴 뒤 그날치를 잃는다. 마지막 관문 하나의 값이 싸다
 - 기존 테스트를 깨뜨리지 마라

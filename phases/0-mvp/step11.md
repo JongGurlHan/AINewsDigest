@@ -21,6 +21,9 @@
 @Scheduled(cron = "0 0 7 * * *", zone = "Asia/Seoul")
 public void generateDaily();
 
+@Scheduled(cron = "0 15 7 * * *", zone = "Asia/Seoul")
+public void retryGenerate();
+
 @Scheduled(cron = "0 30 7 * * *", zone = "Asia/Seoul")
 public void sendDaily();
 ```
@@ -30,6 +33,21 @@ public void sendDaily();
 - 주말·공휴일 구분 없이 매일 돈다 (cron에 요일 제한을 넣지 마라)
 - `generateDaily()`: `LocalDate.now(ZoneId.of("Asia/Seoul"))` 기준으로 `DigestGenerationService.generate()` 호출
 - `sendDaily()`: 같은 날짜로 `DigestSendService.send()` 호출
+
+### 07:15 생성 재시도
+
+`generate()`는 오늘자 다이제스트가 이미 있으면 아무것도 하지 않고 반환한다(step 6 절차 1). 그래서 재시도는 **같은 메서드를 한 번 더 부르는 것**으로 끝나며, 정상일에는 조회 한 번으로 즉시 끝나 무해하다.
+
+- 07:00이 실패했으면 failure 알림은 그때 이미 나갔다. 07:15가 **성공하면 복구됐다는 warning을 보낸다** — 관리자가 앞선 알림을 보고 새벽에 일어나지 않도록
+- 07:15도 실패하면 failure를 한 번 더 보낸다. 이때는 07:30 발송도 실패할 것이 확정이다
+
+이것이 ARCHITECTURE가 말한 "생성 실패 시 30분의 복구 여유"를 실제로 쓰는 유일한 장치다. 없으면 07:00 실패 = 그날 발송 없음이고, 복구 수단이 SSH 수동 실행뿐이라 이 프로젝트의 철학("사람이 개입해야만 복구되는 구조는 만들지 않는다")과 정면으로 어긋난다.
+
+### 스케줄러 스레드 풀은 1로 둔다
+
+`spring.task.scheduling.pool.size: 1` (Boot 기본값, `application.yml`에 명시되어 있다). **늘리지 마라.**
+
+생성이 길어져 07:30을 넘겨도 발송은 동시 실행되지 않고 생성이 끝난 뒤 지연 실행된다. 이게 옳은 동작이다. 풀을 늘리면 생성 중에 발송이 시작돼 다이제스트를 찾지 못하고 "다이제스트 없음" 오탐 알림이 간다. 작업이 셋으로 늘어난 뒤로 이 순차성이 더 중요해졌다.
 
 **날짜는 반드시 `Asia/Seoul` 기준으로 구한다.** `LocalDate.now()`를 인자 없이 호출하면 서버 기본 타임존(UTC)이 쓰여 07:00 KST에는 아직 전날이다. 그러면 생성과 발송이 서로 다른 날짜를 보게 되어 매일 "다이제스트 없음"이 된다.
 
@@ -43,6 +61,7 @@ public void notifyWarning(String title, String detail);
 ```
 
 - step 7의 `Messenger`로 `admin-chat-id`에 보낸다
+- **step 8의 `TelegramUpdatePoller`가 남겨 둔 자리를 여기서 연결한다.** 폴러는 연속 실패가 임계값에 도달하면 ERROR 로그를 1회 남기도록 만들어져 있다(`AdminNotifier`가 그때는 없었다). 그 지점에 `notifyFailure`를 연결하되, **"1회만"이라는 판정 로직은 폴러에 이미 있으므로 새로 만들지 마라**
 - `admin-chat-id`가 비어 있으면 조용히 넘어간다 (예외를 던지지 마라)
 - **알림 전송 자체가 실패해도 예외를 던지지 마라.** 이유: 장애 알림이 실패해서 2차 장애를 만들면 안 된다. 로그만 남긴다
 - 메시지에 HTML 특수문자가 들어갈 수 있으므로 이스케이프한다
@@ -50,13 +69,19 @@ public void notifyWarning(String title, String detail);
 알릴 상황:
 | 상황 | 종류 |
 |---|---|
-| 생성 중 예외 발생 | failure |
+| 생성 중 예외 발생 (07:00) | failure |
+| 생성 재시도 성공 (07:15) | warning — "복구됨" |
+| 생성 재시도도 실패 (07:15) | failure |
 | **수집 전면 실패 의심** (`candidateCount == 0` && `failedSourceCount > 0`) | **failure** |
 | **일부 소스 장애** (`failedSourceCount > 0`, 후보는 있음) | **warning** |
 | 발송 시 해당 날짜 다이제스트 없음 (`digestFound == false`) | failure |
 | 발송 중 예외 발생 | failure |
+| **발송 전원 실패** (`sentAtRecorded == false`) | **failure** |
 | 발송 실패 구독자가 시도분의 30% 이상 (`failed / totalSubscribers`) | warning |
+| **자동 해지 스윕을 건너뜀** (`autoUnsubscribeSkipped == true`) | **warning** |
 | 자동 해지가 발생함 | warning |
+
+**발송 전원 실패는 반드시 failure로 알려라.** `sentAtRecorded == false`는 다이제스트가 미발송 상태로 남아 재실행을 기다린다는 뜻이다(ADR-018). 실패율 30% 경고와 같은 등급으로 묻으면, 아무도 받지 못한 날이 "실패율이 좀 높았던 날"로 보인다.
 
 **수집 전면 실패를 반드시 알려라.** 소스가 전부 죽으면 후보 0건 → EMPTY 다이제스트 → 07:30에 "오늘의 AI 뉴스는 없습니다"가 정상 발송 → 발송이 성공했으니 `pingSuccess()`까지 나간다. **관리자 알림도 없고 데드맨스위치도 초록불이라 장애를 아무도 모른다.** ADR-010이 "침묵과 장애가 구분되지 않는다"며 막으려던 상황이 정확히 이것이다. `candidateCount == 0 && failedSourceCount == 0`(진짜 조용한 날)과 구분하는 것이 핵심이다 — 전자만 알린다.
 
@@ -83,6 +108,7 @@ ainewsdigest:
     enabled: true          # src/test/resources/application.yml 에서는 false
     zone: Asia/Seoul
     generate-cron: "0 0 7 * * *"
+    retry-generate-cron: "0 15 7 * * *"
     send-cron: "0 30 7 * * *"
   ops:
     healthcheck-url: ${HEALTHCHECK_URL:}
@@ -119,6 +145,12 @@ java -jar app.jar --ainewsdigest.run=send
 11. **`candidateCount == 0` && `failedSourceCount > 0`이면 failure 알림이 간다** (수집 전면 실패)
 12. **`candidateCount == 0` && `failedSourceCount == 0`이면 알림이 가지 않는다** (진짜 뉴스 없는 날은 정상이다)
 13. `failedSourceCount > 0`인데 후보가 있으면 warning 알림이 간다
+14. **`retryGenerate()`가 오늘자 다이제스트가 이미 있으면 생성 서비스를 호출하되 아무 알림도 보내지 않는다** (정상일에 무해)
+15. **07:00 실패 후 07:15가 성공하면 "복구됨" warning이 간다**
+16. **07:15도 실패하면 failure가 간다**
+17. **`sentAtRecorded == false`면 failure 알림이 간다** (전원 실패 — ADR-018)
+18. `autoUnsubscribeSkipped == true`면 warning 알림이 간다
+19. `retryGenerate()`도 `Asia/Seoul` 기준 날짜를 쓴다 (고정 `Clock`으로 검증)
 
 `Clock`을 빈으로 등록해 주입받아라. 시각에 의존하는 로직을 `Instant.now()` 직접 호출로 만들면 테스트할 수 없다.
 
@@ -150,4 +182,7 @@ java -jar app.jar --ainewsdigest.run=send
 - cron에 요일 제한을 넣지 마라. 이유: PRD에 주말 포함 매일 발송으로 명시되어 있다
 - 새 도메인 로직을 만들지 마라. 이유: 이 step은 기존 서비스를 시각에 맞춰 호출하고 결과를 알리는 것까지다
 - 후보 0건을 무조건 정상으로 처리하지 마라. 이유: 수집 전면 장애와 구분되지 않아 ADR-010의 감시가 통째로 무력화된다. `failedSourceCount`로 갈라야 한다
+- `spring.task.scheduling.pool.size`를 늘리지 마라. 이유: 생성이 끝나기 전에 발송이 시작돼 "다이제스트 없음" 오탐이 난다. 07:00 생성이 길어지면 발송은 지연 실행되는 것이 맞다
+- `retryGenerate()`에 별도의 멱등성 검사를 만들지 마라. 이유: `generate()`가 이미 `existsByDigestDate`로 막고 있다. 검사가 두 벌이 되면 규칙이 갈라진다
+- 발송 전원 실패를 실패율 경고로 뭉뚱그리지 마라. 이유: 그날 다이제스트가 미발송으로 남아 재실행을 기다리는 상태다. 경고 등급으로 묻으면 아무도 못 받은 날이 "실패율이 좀 높았던 날"로 보인다
 - 기존 테스트를 깨뜨리지 마라

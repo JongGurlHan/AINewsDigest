@@ -12,5 +12,21 @@ spring:
       ddl-auto: validate
   flyway:
     locations: classpath:db/migration
-  thymeleaf:
-    cache: false
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        # 상한을 두지 않으면 Boot 기본값 2000이 적용되어 ?size=2000 한 번에
+        # 다이제스트 2,000건과 그 항목 전량을 조회한다.
+        max-page-size: 50
+  task:
+    scheduling:
+      # 1을 유지한다. 생성(07:00)이 07:30을 넘겨도 발송은 동시 실행이 아니라
+      # 지연 실행된다 — 이게 옳다. 늘리면 생성이 끝나기 전에 발송이 시작돼
+      # "다이제스트 없음" 오탐이 난다.
+      pool:
+        size: 1
+
+# spring.thymeleaf.cache 는 두지 않는다. 이 파일은 운영 설정이고,
+# 끄면 매 요청마다 템플릿을 다시 파싱한다. 개발 중 핫리로드가 필요하면
+# 실행 인자로만 켠다: --spring.thymeleaf.cache=false

@@ -16,11 +16,14 @@
 `com.example.ainewsdigest.digest.DigestMessageBuilder` (`@Component`)
 
 ```java
-public record DigestMessage(String html, int visibleLength, int includedCount) {}
+public record DigestMessage(String html, int visibleLength, int includedCount,
+                            List<SummarizedArticle> includedArticles) {}
 
 /** 요약 결과를 텔레그램 HTML 메시지로 만든다. articles가 비면 '뉴스 없음' 메시지를 만든다. */
 public DigestMessage build(LocalDate date, List<SummarizedArticle> articles);
 ```
+
+`includedArticles`는 **실제로 메시지에 들어간 항목**이며, 길이 때문에 요약이 잘렸다면 **잘린 `summaryKo`가 담긴다.** step 6이 이걸 그대로 저장한다. `includedCount`만 돌려주면 건수 축소는 반영되지만 요약 절단은 반영되지 않아, 아카이브 웹페이지가 실제 발송 내용과 달라진다.
 
 ### 메시지 형식
 
@@ -67,9 +70,24 @@ public DigestMessage build(LocalDate date, List<SummarizedArticle> articles);
 1. 전체를 조립해 `visibleLength`를 잰다
 2. 4,000자를 넘으면 **가장 마지막 항목(= 점수가 가장 낮은 항목)을 제거하고 다시 조립한다**
 3. 1건이 남을 때까지 반복한다
-4. 1건만 남았는데도 넘으면, 그 항목의 `summaryKo`를 뒤에서 잘라 맞춘다 (최후 수단)
+4. 1건만 남았는데도 넘으면, 그 항목의 `summaryKo`를 잘라 맞춘다 (최후 수단). **아래 규칙을 반드시 지킨다**
 
 번호는 항목이 제거된 뒤 **다시 매긴다**. 3건이 남으면 1, 2, 3이어야 한다.
+
+### 절단 규칙 — 어기면 그날 발송이 전멸한다
+
+**조립된 HTML을 자르지 마라. 이스케이프 전 원문 `summaryKo`를 자르고, 자른 뒤에 이스케이프해 다시 조립하라.**
+
+이스케이프된 문자열을 뒤에서 자르면 `&amp;`가 `&am`으로 쪼개진다. 텔레그램 HTML 파서는 이걸 거부하고 **400 Bad Request**를 돌려주는데, 400은 재시도 대상이 아니고(step 7) 같은 문자열이 **모든 구독자에게 반복**된다. 한 글자 때문에 그날 발송이 전멸한다. 태그 중간(`<a hre`)에서 잘리는 경우도 마찬가지다.
+
+절차:
+
+1. 원문 `summaryKo`를 목표 길이로 자른다
+2. 자른 원문을 이스케이프한다
+3. 메시지를 다시 조립하고 `visibleLength`를 **다시 측정한다** — 이스케이프로 길이가 늘어날 수 있으므로(`&` 1자 → `&amp;` 5자, 단 보이는 길이는 1자) 재측정이 필요하다
+4. 여전히 넘으면 더 줄여 반복한다
+
+**문자 경계**: `substring(0, n)`을 쓰지 마라. UTF-16 서로게이트 페어(이모지)가 반으로 쪼개져 깨진 문자가 만들어지고, 그것 역시 텔레그램이 거부한다. `String.offsetByCodePoints()`로 코드포인트 경계를 잡는다.
 
 ### 설정
 
@@ -95,6 +113,10 @@ ainewsdigest:
 9. 항목 제거 후 번호가 1~4로 다시 매겨진다
 10. 1건인데 요약이 5,000자면 잘려서 4,000자 이하가 된다
 11. 어떤 입력에서도 결과의 `visibleLength <= 4000`
+12. **절단이 HTML 엔티티를 쪼개지 않는다** — `&`가 잘리는 경계에 오도록 만든 5,000자 요약을 넣고, 결과 HTML에 `&amp;`·`&lt;`·`&gt;` 아닌 벌거벗은 `&`나 잘린 엔티티(`&am`, `&l`)가 없는지 단언한다
+13. **절단이 서로게이트 페어를 쪼개지 않는다** — 이모지가 경계에 오는 요약을 넣고 결과가 유효한 문자열인지 단언한다 (`codePoints()` 순회에 깨진 문자가 없다)
+14. **절단이 태그 중간에서 일어나지 않는다** — 결과 HTML의 태그가 전부 짝이 맞는다
+15. **`includedArticles`가 실제 메시지 내용과 일치한다** — 요약이 잘린 경우 `includedArticles`의 `summaryKo`도 잘려 있다 (원문이 아니다)
 
 ## Acceptance Criteria
 
@@ -119,6 +141,9 @@ ainewsdigest:
 - `parse_mode`를 MarkdownV2나 Markdown으로 바꾸지 마라. 이유: ADR-009에 근거가 있다. 한글 요약에는 마침표가 반드시 들어가고, MarkdownV2에서 마침표는 이스케이프 대상이라 하나만 놓쳐도 발송 전체가 400으로 실패한다
 - `<b>`, `<i>`, `<a>`, `<code>`, `<pre>` 외의 HTML 태그를 쓰지 마라. 이유: 텔레그램이 지원하지 않는 태그가 있으면 400으로 실패한다. `<br>`도 지원하지 않으니 줄바꿈은 `\n`을 쓴다
 - 메시지를 여러 통으로 분할하지 마라. 이유: 한 통에 담기로 결정했다. 넘치면 건수를 줄인다
+- **조립된 HTML 문자열을 자르지 마라.** 이유: `&amp;`가 `&am`으로 쪼개지면 텔레그램이 400을 돌려주고, 400은 재시도 없이 모든 구독자에게 반복된다. 그날 발송이 전멸한다. 자르는 것은 이스케이프 전 원문뿐이다
+- `substring(0, n)`으로 자르지 마라. 이유: 이모지의 서로게이트 페어가 쪼개져 깨진 문자가 생기고 이것도 400을 부른다. `offsetByCodePoints`를 쓴다
+- 절단 후 길이 재측정을 생략하지 마라. 이유: 이스케이프가 절단 뒤에 오므로 조립 결과 길이가 달라진다. 재측정 없이 넘기면 상한을 넘긴 메시지가 나간다
 - 텔레그램 API를 호출하지 마라. 이유: step 7의 범위다. 이 클래스는 문자열만 만든다
 - DB에 접근하지 마라. 이유: 순수 로직이어야 테스트가 빠르고 확실하다
 - 기존 테스트를 깨뜨리지 마라

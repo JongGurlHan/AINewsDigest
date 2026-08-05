@@ -108,7 +108,21 @@ ainewsdigest:
 
 봇 토큰은 환경변수로만 주입한다.
 
-**로그에 봇 토큰을 남기지 마라.** URL 경로에 토큰이 들어가므로, 요청 URL을 그대로 로깅하면 토큰이 로그 파일에 평문으로 쌓인다. 로깅할 때는 토큰 부분을 마스킹한다.
+### 로그에 봇 토큰을 남기지 마라 — 예외 메시지가 특히 위험하다
+
+텔레그램은 토큰을 **URL 경로**에 넣는다(`/bot{token}/sendMessage`). 그래서 URL을 직접 로깅하지 않아도 새어 나가는 경로가 있다.
+
+**Spring의 `ResourceAccessException` 메시지에는 요청 URL이 통째로 들어 있다:**
+
+```
+I/O error on GET request for "https://api.telegram.org/bot8123456:AAH...실제토큰.../getUpdates": Read timed out
+```
+
+롱폴링은 타임아웃과 연결 오류가 일상이다. `log.warn("polling failed", e)` 한 줄이면 토큰이 로그 파일에 **반복해서** 평문으로 쌓인다. 토큰이 유출되면 봇을 완전히 탈취당한다 — 구독자 전원에게 임의의 메시지를 보낼 수 있다.
+
+- `TelegramClient`에 마스킹 유틸을 두고 **모든 로깅 경로가 이를 통과**하게 한다: `/bot<숫자>:<영숫자>` → `/bot***`
+- **예외 객체를 로거에 그대로 넘기지 마라.** `log.warn("...", e)`는 스택트레이스와 메시지를 전부 찍는다. `log.warn("... : {}", mask(e.getMessage()))` 형태로 마스킹된 메시지만 남긴다
+- `SendResult.Failed`·`PollResult.Failure`의 `description`/`reason`에 담는 문자열도 마스킹한다. 이 값들은 step 9·11을 거쳐 **관리자 알림 메시지로 텔레그램에 발송된다**
 
 ## 테스트
 
@@ -126,6 +140,8 @@ ainewsdigest:
 10. `getUpdates`가 500을 받으면 `PollResult.Failure`를 반환한다 (빈 `Updates`가 아니다)
 11. **업데이트가 0건인 정상 응답은 `Updates(빈 리스트)`다** — 10번의 실패와 구분되어야 한다
 12. 폴링용 클라이언트의 read timeout이 `poll-timeout`보다 크다 (WireMock 지연 응답으로 검증)
+13. **타임아웃을 유발했을 때 캡처한 로그 출력에 토큰 문자열이 없다.** 알아보기 쉬운 더미 토큰(`8123456:AAHdummyTokenValue`)을 설정하고, `ListAppender`로 로그를 캡처해 그 문자열이 포함되지 않는지 단언한다
+14. **`PollResult.Failure.reason`과 `SendResult.Failed.description`에도 토큰이 없다** (관리자 알림으로 발송되는 값이다)
 
 ## Acceptance Criteria
 
@@ -149,6 +165,7 @@ ainewsdigest:
 
 - 테스트에서 실제 `api.telegram.org`를 호출하지 마라. 이유: 봇 토큰이 필요하고 CI가 외부에 종속된다. WireMock을 쓴다
 - 봇 토큰을 코드나 `application.yml`에 하드코딩하지 마라. 이유: 토큰이 유출되면 누구나 봇을 조종할 수 있다
+- `log.warn("...", e)`처럼 예외 객체를 로거에 그대로 넘기지 마라. 이유: Spring의 I/O 예외 메시지에는 토큰이 든 요청 URL이 통째로 들어 있다. 롱폴링은 타임아웃이 일상이라 그 한 줄이 매 사이클 토큰을 로그에 쌓는다
 - `bot-token`이 비어 있다고 이 step을 `blocked`로 만들지 마라. 이유: 모든 테스트가 WireMock을 쓰므로 토큰 없이 빌드가 통과해야 한다
 - 웹훅(`setWebhook`)을 구현하지 마라. 이유: ADR-008에서 롱폴링으로 결정했다
 - 여기서 폴링 루프를 돌리지 마라(`@Scheduled`, 백그라운드 스레드 금지). 이유: step 8의 범위다. 이 클래스는 `getUpdates`를 **한 번** 호출하는 것까지만 한다
