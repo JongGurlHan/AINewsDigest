@@ -33,13 +33,21 @@ public sealed interface SendResult {
 
 // delivery/UpdateSource.java
 public interface UpdateSource {
-    /** 롱폴링. offset 이상의 업데이트를 timeoutSeconds까지 기다렸다 반환한다. */
-    List<TelegramUpdate> getUpdates(long offset, int timeoutSeconds);
+    /** 롱폴링. offset 이상의 업데이트를 timeoutSeconds까지 기다렸다 반환한다. 예외를 던지지 않는다. */
+    PollResult getUpdates(long offset, int timeoutSeconds);
+}
+
+// delivery/PollResult.java
+public sealed interface PollResult {
+    record Updates(List<TelegramUpdate> updates) implements PollResult {}
+    record Failure(String reason) implements PollResult {}
 }
 
 // delivery/TelegramUpdate.java
 public record TelegramUpdate(long updateId, long chatId, String text) {}
 ```
+
+**`getUpdates`의 실패를 빈 리스트로 표현하지 마라 (ADR-016).** 롱폴링에서는 "타임아웃까지 기다렸는데 업데이트가 없었다"가 가장 흔한 **정상** 응답이고 그것도 빈 리스트다. 둘을 같은 값으로 만들면 step 8의 폴러가 실패를 감지할 수 없어 백오프를 걸 방법이 아예 없어진다. 결국 정상 무응답마다 5초씩 자거나, 네트워크가 끊긴 채로 초당 수십 번 재시도하게 된다.
 
 ### 구현
 
@@ -74,7 +82,18 @@ GET {baseUrl}/bot{token}/getUpdates?offset={offset}&timeout={timeoutSeconds}&all
 - 롱폴링이므로 HTTP read timeout은 `timeoutSeconds`보다 넉넉히 크게 잡는다 (예: +10초).
   이유: 읽기 타임아웃이 폴링 타임아웃보다 짧으면 매번 예외가 나고 폴링이 동작하지 않는다
 - `message.text`가 없는 업데이트(사진, 스티커 등)는 건너뛴다
-- 실패 시 빈 리스트를 반환한다 (예외를 던지지 않는다)
+- 실패 시 `PollResult.Failure`를 반환한다 (예외를 던지지 않는다)
+
+**타임아웃 구성 (ADR-015).** 전역 `spring.http.client.read-timeout`은 수집용 10초라서 그대로 쓰면 30초 롱폴링이 매 사이클 터진다. 발송과 폴링은 요구 타임아웃이 다르므로 **`RestClient`를 두 개 만든다**:
+
+```java
+// 발송용: read timeout 10s
+// 폴링용: read timeout = poll-timeout + 10s (예: 40s)
+this.pollingClient = builder.baseUrl(props.baseUrl())
+        .requestFactory(factoryBuilder.build(
+                defaults.withReadTimeout(props.pollTimeout().plusSeconds(10))))
+        .build();
+```
 
 ### 설정
 
@@ -102,9 +121,11 @@ ainewsdigest:
 5. 400 → `Failed(retryable=false)`
 6. 500 → `Failed(retryable=true)`
 7. 연결 타임아웃 → `Failed(retryable=true)`, 예외가 밖으로 나오지 않는다
-8. `getUpdates`가 업데이트 목록을 파싱하고 `chatId`·`text`를 채운다
+8. `getUpdates`가 `PollResult.Updates`를 반환하고 `chatId`·`text`가 채워진다
 9. `getUpdates` 응답에 `text` 없는 메시지가 섞여 있으면 그것만 제외한다
-10. `getUpdates`가 500을 받으면 빈 리스트를 반환한다
+10. `getUpdates`가 500을 받으면 `PollResult.Failure`를 반환한다 (빈 `Updates`가 아니다)
+11. **업데이트가 0건인 정상 응답은 `Updates(빈 리스트)`다** — 10번의 실패와 구분되어야 한다
+12. 폴링용 클라이언트의 read timeout이 `poll-timeout`보다 크다 (WireMock 지연 응답으로 검증)
 
 ## Acceptance Criteria
 
@@ -133,4 +154,6 @@ ainewsdigest:
 - 여기서 폴링 루프를 돌리지 마라(`@Scheduled`, 백그라운드 스레드 금지). 이유: step 8의 범위다. 이 클래스는 `getUpdates`를 **한 번** 호출하는 것까지만 한다
 - 구독자 등록·해지 로직을 만들지 마라. 이유: step 8의 범위다
 - `SendResult` 대신 예외로 오류를 표현하지 마라. 이유: 위에 설명했다. 한 명의 실패가 전체 발송을 중단시킨다
+- `getUpdates`의 실패를 빈 리스트로 표현하지 마라. 이유: 롱폴링의 정상 무응답과 구분이 안 되어 step 8이 백오프를 구현할 수 없다 (ADR-016)
+- 발송용과 폴링용이 같은 `RestClient`를 쓰게 하지 마라. 이유: 필요한 read timeout이 10s와 40s로 다르다. 하나로 합치면 둘 중 하나가 깨진다
 - 기존 테스트를 깨뜨리지 마라

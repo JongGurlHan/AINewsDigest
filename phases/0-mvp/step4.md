@@ -60,7 +60,16 @@ public String completeAsJson(String systemPrompt, String userPrompt, Map<String,
 - 엔드포인트: `{baseUrl}/chat/completions`, 헤더 `Authorization: Bearer {apiKey}`
 - `response_format`에 `{"type": "json_schema", "json_schema": {...,"strict": true}}`를 넣어 구조를 강제한다
 - 4xx는 재시도하지 않는다(요청 자체가 잘못된 것). 429와 5xx는 지수 백오프로 최대 3회 재시도한다
-- 최종 실패 시 예외를 던진다
+- 최종 실패 시 예외를 던진다 — 선별·요약 실패는 부분 실패가 아니라 그날 다이제스트가 성립하지 않는 것이다 (ADR-016)
+
+**타임아웃을 반드시 생성자에서 지정한다 (ADR-015).** 전역 `spring.http.client.read-timeout`은 수집용 10초로 잡혀 있고, 그대로 두면 요약 호출이 매일 아침 타임아웃난다. step 2의 어댑터와 같은 방식으로 `timeout`(60s)을 적용한다:
+
+```java
+this.restClient = builder
+        .baseUrl(props.baseUrl())
+        .requestFactory(factoryBuilder.build(defaults.withReadTimeout(props.timeout())))
+        .build();
+```
 
 ### 채점 기준 — 프롬프트에 명시할 것
 
@@ -112,6 +121,7 @@ ainewsdigest:
 7. `OpenAiArticleSummarizer`가 응답을 `SummarizedArticle`로 매핑한다
 8. 응답 `index`가 입력 순서와 다르게 와도 올바른 기사에 매칭된다
 9. 응답 배열이 입력보다 적게 와도 예외 없이 온 것만 반환한다
+10. `OpenAiClient`의 read timeout이 전역값(10s)이 아니라 설정된 `timeout`(60s)으로 적용된다 (WireMock 지연 응답으로 검증하거나, 최소한 팩토리 구성 경로를 단언한다)
 
 ## Acceptance Criteria
 

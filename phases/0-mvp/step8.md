@@ -54,15 +54,30 @@ public void handle(TelegramUpdate update);
   - `EMPTY`를 보내지 마라 — 환영 메시지 직후에 "오늘의 AI 뉴스는 없습니다"가 이어지면 첫인상이 망가진다. 한 칸 더 거슬러 올라가 내용이 있는 다이제스트를 보낸다
   - 발송 여부를 `status == SENT`로 판정하지 마라. EMPTY는 발송돼도 status가 EMPTY로 남는다 (ARCHITECTURE.md "다이제스트 상태 규칙")
 
+### 이 조회는 `digest` 도메인에 둔다
+
+`BotCommandHandler`에서 `DigestRepository`를 직접 호출하지 마라. **`com.example.ainewsdigest.digest.DigestQueryService`를 이 step에서 만들고** 거기에 둔다:
+
+```java
+// digest/DigestQueryService.java  — 조회 전용, 모든 메서드에 @Transactional(readOnly = true)
+public Optional<DigestView> findLatestSentWithContent();   // sentAt != null && status != EMPTY, digestDate 최대
+```
+
+이유: step 10의 웹 화면이 **같은 규칙**으로 최신호를 노출한다. 여기서 리포지토리를 직접 부르면 같은 쿼리가 두 벌 생기고, 나중에 한쪽만 고쳐져 봇과 웹이 서로 다른 다이제스트를 보여준다. step 10은 이 서비스에 화면용 메서드를 **추가**한다 (ARCHITECTURE.md "도메인 간 접근").
+
+`DigestView`/`DigestItemView` DTO도 이 step에서 만든다 (정의는 step 10과 동일하게 맞춘다). 엔티티를 `delivery`로 넘기지 마라 — `open-in-view: false`라 트랜잭션 밖에서 `items`를 건드리면 `LazyInitializationException`이 난다.
+
 ### 롱폴링 러너
 
 `com.example.ainewsdigest.delivery.TelegramUpdatePoller`
 
 - 애플리케이션 기동 후 **데몬 스레드 하나**에서 루프를 돈다. `SmartLifecycle` 또는 `ApplicationRunner` + `ExecutorService`를 쓴다
-- 루프: `updateSource.getUpdates(offset, pollTimeoutSeconds)` → 각 업데이트를 `BotCommandHandler.handle()`에 넘김 → `offset = maxUpdateId + 1`
+- 루프: `updateSource.getUpdates(offset, pollTimeoutSeconds)` → 결과를 분기한다
+  - `PollResult.Updates` → 각 업데이트를 `BotCommandHandler.handle()`에 넘기고 `offset = maxUpdateId + 1`, 연속 실패 카운터를 0으로
+  - `PollResult.Failure` → 연속 실패 카운터를 올리고 설정된 시간(기본 5초)만큼 쉰 뒤 재시도. offset은 그대로 둔다
+- **빈 `Updates`에는 쉬지 마라.** 롱폴링에서 업데이트 0건은 가장 흔한 정상 응답이다. 여기서 5초를 자면 응답성이 그만큼 나빠진다. 쉬는 것은 `Failure`일 때뿐이다
 - offset은 **메모리에만 보관한다.** 재시작하면 0부터 시작해 최근 24시간 업데이트를 다시 받게 되지만, 위에서 멱등하게 만들었으므로 문제되지 않는다
 - 개별 업데이트 처리 중 예외가 나도 **루프를 멈추지 마라.** 로그만 남기고 다음 업데이트로 넘어간다
-- `getUpdates`가 연속 실패하면 짧게(예: 5초) 쉬었다 재시도한다. 촘촘한 무한 재시도로 API를 때리지 마라
 - 애플리케이션 종료 시 루프를 깨끗하게 중단한다
 - **테스트 프로파일에서는 폴러가 뜨지 않아야 한다.** `@ConditionalOnProperty`로 켜고 끌 수 있게 만들고 기본값은 켬, 테스트 설정에서 끈다.
   이유: 테스트마다 백그라운드 스레드가 실제 텔레그램 API를 때리면 안 된다
@@ -71,7 +86,8 @@ public void handle(TelegramUpdate update);
 ainewsdigest:
   telegram:
     polling:
-      enabled: true       # src/test/resources/application.yml 에서는 false
+      enabled: true         # src/test/resources/application.yml 에서는 false
+      failure-backoff: 5s   # PollResult.Failure일 때만 적용된다
 ```
 
 ## 테스트
@@ -97,6 +113,8 @@ ainewsdigest:
 
 11. 업데이트 3건을 받으면 핸들러가 3번 호출되고 다음 offset이 `maxUpdateId + 1`이다
 12. 핸들러가 예외를 던져도 나머지 업데이트가 계속 처리된다
+13. `PollResult.Failure`를 받으면 백오프 후 재시도하고 **offset이 변하지 않는다**
+14. **빈 `Updates`에는 백오프하지 않는다** (실패와 정상 무응답이 다르게 처리되는지 검증)
 
 ## Acceptance Criteria
 
@@ -124,4 +142,6 @@ ainewsdigest:
 - 사용자별 관심 키워드 설정 같은 개인화 명령을 추가하지 마라. 이유: PRD MVP 제외 사항이다
 - 웹훅 엔드포인트를 만들지 마라. 이유: ADR-008에서 롱폴링으로 결정했다
 - 일일 다이제스트 발송 로직을 만들지 마라. 이유: step 9의 범위다
+- `BotCommandHandler`에서 `DigestRepository`를 직접 호출하지 마라. 이유: step 10이 같은 조회를 또 구현하게 되어 봇과 웹이 어긋난다. `DigestQueryService`에 둔다
+- `Digest`/`DigestItem` 엔티티를 `delivery` 패키지로 넘기지 마라. 이유: `open-in-view: false`라 트랜잭션 밖에서 `items`를 읽으면 터진다. DTO로 변환해 넘긴다
 - 기존 테스트를 깨뜨리지 마라

@@ -32,6 +32,27 @@ src/
 - 인바운드(Controller, `@Scheduled`, 텔레그램 폴러)는 추상화하지 않는다. 과설계를 피한다
 - `@Transactional`은 Service 계층에만 부착한다
 
+### 아웃바운드 포트의 오류 표현 (ADR-016)
+
+포트마다 실패를 다르게 다룬다. 기준은 **"그 실패로 오늘의 다이제스트가 성립하는가"** 하나다.
+
+| 포트 | 실패 표현 | 이유 |
+|---|---|---|
+| `NewsSource.fetch` | `FetchResult(articles, failed)` | 소스 하나가 죽어도 나머지로 다이제스트가 성립한다 |
+| `ArticleContentExtractor.extract` | `Optional.empty()` | 페이월·봇차단은 정상 흐름. 해당 기사만 탈락 |
+| `Messenger.send` | `SendResult` (sealed) | 구독자 한 명의 실패가 전체 순회를 멈추면 안 된다 |
+| `UpdateSource.getUpdates` | `PollResult` (sealed) | 폴러가 실패와 "업데이트 없음"을 구분해야 백오프를 건다 |
+| `ArticleSelector` · `ArticleSummarizer` | **예외 전파** | 선별·요약이 실패하면 그날 다이제스트 자체가 성립하지 않는다 |
+
+**빈 컬렉션으로 실패를 표현하지 마라.** "결과가 없음"과 "실패해서 없음"이 같은 값이 되면 호출자가 둘을 구분할 수 없고, 장애가 정상 동작으로 위장된다. `NewsSource`와 `UpdateSource`가 정확히 이 문제 때문에 결과 타입을 쓴다.
+
+### 도메인 간 접근
+
+- 다른 도메인의 리포지토리를 **읽는 것은 허용한다.** ADR-012의 계층형 선택에 따른 것이며, 테이블 4개짜리 MVP에 위임 서비스 계층을 한 겹 더 두지 않는다
+- 다만 **재사용되는 조회는 소유 도메인의 Service에만 둔다.** 같은 쿼리를 두 도메인이 각자 구현하지 않는다
+  - 예: "가장 최근에 발송된 내용 있는 다이제스트"는 `digest.DigestQueryService`에만 둔다. 봇의 `/start` 응답(step 8)과 웹 랜딩(step 10)이 같은 메서드를 쓴다. 규칙이 한쪽에서만 바뀌면 봇과 웹이 서로 다른 것을 보여주게 된다
+- 다른 도메인 엔티티의 **상태 변경은 그 엔티티의 도메인 메서드로만** 한다 (`subscriber.unsubscribe()` 등). 공개 setter를 만들지 않은 이유가 이것이다
+
 ## 데이터 흐름
 
 ### 웹 조회
@@ -44,7 +65,7 @@ HTTP 요청 → Controller → Service(@Transactional(readOnly=true)) → Reposi
 ```
 Scheduler → DigestGenerationService
   1. 오늘자 Digest가 이미 있으면 중단 (멱등성: digest.digest_date UNIQUE)
-  2. NewsSource 구현체들에서 지난 24시간 후보 수집
+  2. NewsSource 구현체들에서 지난 24시간 후보 수집 (실패한 소스 수를 센다)
   3. UrlNormalizer로 정규화 → 최근 7일 digest_item.normalized_url과 대조해 중복 제거
   4. ArticleSelector: 후보 제목·출처·points만 LLM에 전달 → 1~5점 채점 → 상위 8건
   5. ArticleContentExtractor: 8건 본문 크롤링 (타임아웃 5초, 실패 시 해당 건 탈락)
@@ -56,6 +77,14 @@ Scheduler → DigestGenerationService
 ```
 
 생성 단계에서는 헬스체크 핑을 보내지 않는다. 핑은 발송 성공 후에만 보낸다(ADR-010). 생성 시점에 같은 핑을 보내면 07:30 발송이 통째로 실패해도 외부에서는 정상으로 관측된다.
+
+**수집 전면 실패는 "뉴스 없음"과 반드시 구분한다.** 소스 3개가 전부 죽어도 후보는 0건이고, 그대로 두면 EMPTY 다이제스트가 정상 발송되고 헬스체크 핑까지 나간다 — 관리자도 외부 감시도 아무 이상을 못 느낀다. ADR-010이 막으려던 사각지대가 정확히 여기다. 그래서 `GenerationResult`가 `candidateCount`와 `failedSourceCount`를 같이 돌려주고, 스케줄러가 아래 규칙으로 판정한다:
+
+| 조건 | 해석 | 조치 |
+|---|---|---|
+| `candidateCount == 0` && `failedSourceCount > 0` | 수집 전면 실패 의심 | 관리자 failure 알림 |
+| `candidateCount == 0` && `failedSourceCount == 0` | 진짜 조용한 날 | 정상. EMPTY 발송 |
+| `failedSourceCount > 0` (후보는 있음) | 일부 소스 장애 | 관리자 warning 알림 |
 
 ### 다이제스트 발송 (매일 07:30 KST)
 ```
@@ -108,6 +137,40 @@ markSent(now):  PENDING -> SENT,  sentAt = now
 - Controller와 Repository에는 `@Transactional`을 붙이지 않는다
 - **외부 API 호출(OpenAI, Telegram, HN, RSS, 기사 크롤링)은 트랜잭션 밖에서 수행한다.** 응답을 다 받은 뒤에 트랜잭션을 열어 저장한다. 네트워크 대기 중 DB 커넥션을 점유하면 커넥션 풀이 마른다
 - 발송은 구독자 단위로 트랜잭션을 분리한다. 한 명의 발송 실패가 다른 구독자의 `DeliveryLog` 기록을 롤백시키면 안 된다
+
+## 외부 HTTP 클라이언트
+
+`RestClient`를 쓴다. **Boot 4는 모듈이 쪼개져서 `spring-boot-starter-webmvc`가 RestClient를 가져오지 않는다.** `RestClient.Builder` 빈과 `spring.http.client.*` 프로퍼티는 `spring-boot-starter-restclient`에만 들어 있다 (ADR-015). 이 의존성을 제거하지 말 것.
+
+### 타임아웃은 어댑터마다 다르다
+
+전역값 하나로 맞출 수 없다. 롱폴링은 30초 넘게 기다려야 정상이고, LLM 요약은 60초가 필요하며, 수집은 10초 안에 포기해야 한다.
+
+| 어댑터 | read timeout | 근거 |
+|---|---|---|
+| `HackerNewsClient` · `RssFeedClient` · `ChangelogClient` | 10s | 느린 소스 하나가 배치를 잡아두면 안 된다. 실패하면 그 소스만 버린다 |
+| `OpenAiClient` | 60s | 요약 호출은 수십 초가 걸린다. 짧으면 매일 아침 타임아웃이다 |
+| `TelegramClient.sendMessage` | 10s | |
+| `TelegramClient.getUpdates` | `poll-timeout` + 10s | **읽기 타임아웃이 폴링 타임아웃보다 짧으면 매 사이클 예외가 나고 구독 기능이 통째로 죽는다** |
+
+`spring.http.client.*`는 기본값으로만 두고, 각 어댑터가 생성자에서 자기 타임아웃을 지정한다:
+
+```java
+// 두 빈 모두 Boot가 자동 구성한다
+public OpenAiClient(RestClient.Builder builder,
+                    ClientHttpRequestFactoryBuilder<?> factoryBuilder,
+                    HttpClientSettings defaults,
+                    OpenAiProperties props) {
+    this.restClient = builder
+            .baseUrl(props.baseUrl())
+            .requestFactory(factoryBuilder.build(defaults.withReadTimeout(props.timeout())))
+            .build();
+}
+```
+
+Boot 4의 타입은 `HttpClientSettings`다. Boot 3.4~3.5의 `ClientHttpRequestFactorySettings`가 아니다.
+
+전역 `ClientHttpRequestFactory` 설정 클래스를 따로 만들지 마라. 어댑터가 세 종류뿐이고 전부 타임아웃이 달라서, 공용 설정 클래스를 두면 결국 어댑터마다 덮어쓰게 된다.
 
 ## 스케줄링
 - 모든 `@Scheduled`에 `zone = "Asia/Seoul"`을 명시한다. 서버(Oracle VM)의 기본 타임존은 UTC이므로 존을 지정하지 않으면 9시간 어긋난다

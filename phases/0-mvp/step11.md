@@ -51,10 +51,14 @@ public void notifyWarning(String title, String detail);
 | 상황 | 종류 |
 |---|---|
 | 생성 중 예외 발생 | failure |
+| **수집 전면 실패 의심** (`candidateCount == 0` && `failedSourceCount > 0`) | **failure** |
+| **일부 소스 장애** (`failedSourceCount > 0`, 후보는 있음) | **warning** |
 | 발송 시 해당 날짜 다이제스트 없음 (`digestFound == false`) | failure |
 | 발송 중 예외 발생 | failure |
 | 발송 실패 구독자가 시도분의 30% 이상 (`failed / totalSubscribers`) | warning |
 | 자동 해지가 발생함 | warning |
+
+**수집 전면 실패를 반드시 알려라.** 소스가 전부 죽으면 후보 0건 → EMPTY 다이제스트 → 07:30에 "오늘의 AI 뉴스는 없습니다"가 정상 발송 → 발송이 성공했으니 `pingSuccess()`까지 나간다. **관리자 알림도 없고 데드맨스위치도 초록불이라 장애를 아무도 모른다.** ADR-010이 "침묵과 장애가 구분되지 않는다"며 막으려던 상황이 정확히 이것이다. `candidateCount == 0 && failedSourceCount == 0`(진짜 조용한 날)과 구분하는 것이 핵심이다 — 전자만 알린다.
 
 ### 데드맨스위치
 
@@ -112,6 +116,9 @@ java -jar app.jar --ainewsdigest.run=send
 8. `Messenger`가 예외를 던져도 `AdminNotifier`가 예외를 전파하지 않는다
 9. `HealthPinger`가 500을 받아도 예외를 던지지 않는다 (WireMock)
 10. cron 표현식과 zone 설정이 `Asia/Seoul`로 바인딩된다
+11. **`candidateCount == 0` && `failedSourceCount > 0`이면 failure 알림이 간다** (수집 전면 실패)
+12. **`candidateCount == 0` && `failedSourceCount == 0`이면 알림이 가지 않는다** (진짜 뉴스 없는 날은 정상이다)
+13. `failedSourceCount > 0`인데 후보가 있으면 warning 알림이 간다
 
 `Clock`을 빈으로 등록해 주입받아라. 시각에 의존하는 로직을 `Instant.now()` 직접 호출로 만들면 테스트할 수 없다.
 
@@ -142,4 +149,5 @@ java -jar app.jar --ainewsdigest.run=send
 - 알림·핑 실패를 예외로 전파하지 마라. 이유: 감시 장치의 실패가 본 기능을 망가뜨리면 안 된다
 - cron에 요일 제한을 넣지 마라. 이유: PRD에 주말 포함 매일 발송으로 명시되어 있다
 - 새 도메인 로직을 만들지 마라. 이유: 이 step은 기존 서비스를 시각에 맞춰 호출하고 결과를 알리는 것까지다
+- 후보 0건을 무조건 정상으로 처리하지 마라. 이유: 수집 전면 장애와 구분되지 않아 ADR-010의 감시가 통째로 무력화된다. `failedSourceCount`로 갈라야 한다
 - 기존 테스트를 깨뜨리지 마라

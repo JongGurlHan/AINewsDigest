@@ -43,7 +43,9 @@ public record DigestItemView(int position, String titleKo, String summaryKo,
 
 ### 서비스
 
-`com.example.ainewsdigest.digest.DigestQueryService` — 조회 전용. 모든 메서드에 `@Transactional(readOnly = true)`.
+`com.example.ainewsdigest.digest.DigestQueryService` — **step 8에서 이미 만들어져 있다.** 새로 만들지 말고 화면용 메서드를 추가한다 (목록 페이징, 날짜 상세, 랜딩용 최근 5일). `findLatestSentWithContent()`는 봇의 `/start` 응답이 쓰고 있으므로 시그니처를 바꾸지 마라. 조회 전용이므로 모든 메서드에 `@Transactional(readOnly = true)`.
+
+`DigestView`/`DigestItemView`도 step 8에서 만들어져 있다. 필드가 모자라면 추가하되, 기존 필드를 바꾸면 step 8의 사용처를 함께 고친다.
 
 `DigestItem`을 함께 조회할 때 **N+1 쿼리가 나지 않게** `fetch join` 또는 `@EntityGraph`를 쓴다. 목록 화면에서 20개 다이제스트를 렌더링하며 매번 항목을 따로 조회하면 안 된다.
 
@@ -61,6 +63,7 @@ static/css/main.css
 - 공통 조각은 `th:replace`로 조합한다 (UI_GUIDE 규약)
 - 페이지 템플릿은 `templates/{도메인}/{화면}.html` 배치
 - **인라인 `style` 속성 금지.** 모든 스타일은 `main.css`의 클래스로
+- **텍스트 출력은 전부 `th:text`를 쓴다. `th:utext`를 쓰지 마라.** 화면에 뿌리는 제목·요약은 LLM이 만든 문자열이라 무엇이 들어올지 보장할 수 없다. `th:text`가 이스케이프해주는 것이 유일한 방어선이다
 - **JavaScript를 쓰지 마라** (UI_GUIDE 규약)
 - 구독 버튼은 `https://t.me/{botUsername}?start=web` 으로 링크한다. `botUsername`은 설정값으로 주입한다
 
@@ -122,4 +125,7 @@ ainewsdigest:
 - 관리자 페이지나 Spring Security를 추가하지 마라. 이유: PRD MVP 제외 사항이다
 - RSS 출력(`/feed.xml`)을 만들지 마라. 이유: PRD MVP 제외 사항이다
 - 미발송(`sentAt == null`) 다이제스트를 노출하지 마라. 이유: 아직 구독자에게 발송되지 않은 내용이 웹에 먼저 뜬다
+- **`th:utext`를 쓰지 마라.** 이유: 화면 내용이 전부 LLM 생성물이다. 이스케이프를 끄는 순간 XSS가 열린다
+- **`digest.message_text`를 화면에 렌더링하지 마라.** 이유: 그건 텔레그램용으로 조립된 HTML 덩어리다. 그대로 뿌리려면 `th:utext`가 필요하고 위 항목을 어기게 된다. 화면은 `digest_item`으로만 만든다
+- `DigestQueryService`를 새로 만들지 마라. 이유: step 8이 이미 만들었다. 같은 조회가 두 벌 생기면 봇과 웹이 서로 다른 최신호를 보여준다
 - 기존 테스트를 깨뜨리지 마라

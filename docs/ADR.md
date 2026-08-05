@@ -74,3 +74,13 @@ MVP 속도 최우선. 다만 **매일 아침 자동으로 돌아가야 하는 �
 **결정**: `digest.status`는 콘텐츠 성격(PENDING/SENT/EMPTY)만 나타내고 발송 여부는 `sent_at`으로 판정한다. EMPTY 다이제스트는 발송 후에도 status를 EMPTY로 유지한 채 `sent_at`만 채운다. 발송 재개는 해당 다이제스트에 이미 SUCCESS 로그가 있는 구독자를 건너뛰는 방식으로 처리한다.
 **이유**: ADR-013에 따라 "뉴스 없음"은 정상 동작이므로 EMPTY로 나간 날이 기록에 남아야 임계값을 튜닝할 수 있는데, 발송 후 EMPTY를 SENT로 덮으면 그 정보가 사라진다. 그렇다고 EMPTY를 발송 대상에서 빼면 PRD의 "침묵하지 않는다"가 깨진다. 두 축을 분리하면 발송·아카이브 노출·멱등성 판정이 전부 `sent_at` 하나로 통일된다. 또한 구독자 순회 도중 프로세스가 죽으면 다이제스트는 여전히 미발송 상태라 재실행 시 처음부터 다시 보내게 되는데, 성공 로그 기준 스킵이 이를 막는다. `sent_at` 컬럼이 이미 있어 스키마 변경이 없다.
 **트레이드오프**: 상태 판정 기준이 컬럼 두 개로 나뉘어 조회 조건을 매번 정확히 써야 한다. 텔레그램 호출과 로그 커밋 사이에 죽은 1건은 여전히 중복될 수 있어 exactly-once는 포기한다. `delivery_log`에 DB 레벨 유일 제약을 두지 않았다 — 재시도 실패 로그가 (digest, subscriber)당 여러 건 쌓이는 설계라 평범한 UNIQUE는 정상 흐름을 깨뜨린다..
+
+### ADR-015: HTTP 클라이언트는 `starter-restclient` + 어댑터별 타임아웃
+**결정**: `spring-boot-starter-restclient`를 명시적으로 추가하고, 타임아웃은 전역 프로퍼티가 아니라 각 어댑터 생성자에서 `HttpClientSettings.withReadTimeout()`으로 지정한다.
+**이유**: Boot 4에서 스타터가 잘게 쪼개지면서 `spring-boot-starter-webmvc`의 의존성이 `starter`·`starter-jackson`·`starter-tomcat`·`http-converter`·`webmvc` 다섯 개로 줄었다. `RestClient.Builder`를 만드는 `spring-boot-restclient`도, `spring.http.client.*`를 정의하는 `spring-boot-http-client`도 여기 포함되지 않는다. Boot 3 감각으로 "웹 스타터를 넣었으니 RestClient가 있겠지" 하면 기동 시점에 `NoSuchBeanDefinitionException`이 나고, 설정에 적어둔 타임아웃 프로퍼티는 아무도 읽지 않는 죽은 키가 된다. 타임아웃을 어댑터별로 두는 이유는 요구 시간이 6배 차이나기 때문이다 — 롱폴링은 30초 이상 기다려야 정상이고 LLM 요약은 60초가 필요한데 수집은 10초 안에 포기해야 한다. 전역값을 하나 고르면 셋 중 둘이 깨진다.
+**트레이드오프**: 어댑터마다 3~4줄의 빌더 구성 코드가 반복된다. 공용 팩토리로 묶으면 그 대가로 타임아웃 차이가 설정 밖으로 숨는다.
+
+### ADR-016: 아웃바운드 포트의 실패는 예외가 아니라 반환 타입으로 표현한다
+**결정**: `NewsSource.fetch`는 `FetchResult(articles, failed)`, `UpdateSource.getUpdates`는 `PollResult`(sealed), `Messenger.send`는 `SendResult`(sealed), `ArticleContentExtractor.extract`는 `Optional`을 돌려준다. 반대로 `ArticleSelector`·`ArticleSummarizer`의 실패는 예외로 전파한다. **빈 컬렉션으로 실패를 표현하지 않는다.**
+**이유**: 이 파이프라인에서 부분 실패는 예외 상황이 아니라 매일 일어나는 정상 흐름이다(페이월 사이트, 죽은 피드, 봇을 차단한 구독자). 예외로 표현하면 호출자가 매번 try-catch로 흐름을 복원해야 하고, 발송 루프에서는 한 명의 실패가 나머지 구독자를 통째로 날린다. 그렇다고 빈 리스트로 뭉개면 더 나쁘다 — "결과가 없음"과 "실패해서 없음"이 같은 값이 되어 **장애가 정상 동작으로 위장된다.** 실제로 그 구멍이 두 군데 있었다. 수집 소스 3개가 전부 죽어도 후보 0건이라 EMPTY가 정상 발송되고 헬스체크 핑까지 나가 ADR-010의 감시가 무력화됐고, 롱폴링은 실패와 "업데이트 없음"이 둘 다 빈 리스트라 폴러가 백오프를 걸 방법이 없었다. 선별·요약만 예외인 것은 그 실패가 부분 실패가 아니기 때문이다 — 요약이 없으면 그날 다이제스트 자체가 성립하지 않으므로 스케줄러까지 올려보내 재시도·알림을 결정하게 한다.
+**트레이드오프**: 포트 하나당 결과 타입이 하나씩 늘어 클래스 수가 는다. 호출부는 성공 분기만 쓰고 실패 필드를 조용히 무시할 수 있어, 결과 타입을 쓴다는 사실만으로 처리가 보장되지는 않는다.

@@ -22,13 +22,17 @@
 /** 해당 날짜의 다이제스트를 생성해 PENDING(또는 EMPTY) 상태로 저장한다. */
 public GenerationResult generate(LocalDate date);
 
-public record GenerationResult(DigestStatus status, int itemCount, int candidateCount) {}
+public record GenerationResult(DigestStatus status, int itemCount,
+                               int candidateCount, int failedSourceCount) {}
 ```
+
+`failedSourceCount`는 **`FetchResult.failed`가 true인 소스의 수**다. step 11이 이 값으로 "진짜 뉴스 없는 날"과 "수집이 통째로 죽은 날"을 구분한다. 이 필드를 빼면 소스 3개가 전부 죽어도 EMPTY가 정상 발송되고 헬스체크 핑까지 나가 아무도 장애를 모른다 (ADR-010, ADR-016).
 
 ### 절차 (ARCHITECTURE.md의 흐름을 그대로 구현)
 
 1. `digestRepository.existsByDigestDate(date)` 가 true면 **아무것도 하지 않고 즉시 반환한다** (멱등성)
-2. `since = now - 24시간`. 모든 `NewsSource`를 순회해 후보를 모은다 (`List<NewsSource>`를 주입받는다)
+2. `since = now - 24시간`. 모든 `NewsSource`를 순회해 후보를 모은다 (`List<NewsSource>`를 주입받는다).
+   각 `FetchResult.articles`를 합치고, `failed == true`인 소스를 세어 `failedSourceCount`에 담는다
 3. `normalizedUrl` 기준으로 후보 내 중복을 제거한다
 4. `digestRepository.findNormalizedUrlsSince(date.minusDays(7))` 결과에 포함된 후보를 제외한다
 5. 후보가 0건이면 EMPTY로 저장하고 종료
@@ -59,7 +63,7 @@ public record GenerationResult(DigestStatus status, int itemCount, int candidate
 ### 실패 처리
 
 - `ArticleSelector`/`ArticleSummarizer`가 예외를 던지면 그대로 밖으로 전파한다. 스케줄러(step 11)가 재시도와 알림을 결정한다
-- 개별 `NewsSource.fetch`는 이미 빈 리스트를 반환하도록 되어 있으므로 여기서 예외 처리하지 않는다
+- 개별 `NewsSource.fetch`는 예외를 던지지 않으므로 여기서 try-catch 하지 않는다. 대신 **`failed` 플래그를 세어 `GenerationResult`로 올려보낸다.** 수집 실패를 여기서 삼키지 마라 — 판단은 step 11이 한다
 - 크롤링 실패는 정상 흐름이다. 해당 기사만 탈락시키고 계속 진행한다
 
 ## 테스트
@@ -80,6 +84,8 @@ DB는 Testcontainers를 쓴다 — `@SpringBootTest` + `@Import(TestcontainersCo
 추가 검증:
 5. 최근 7일 내 발송된 `normalizedUrl`을 가진 후보는 선별기에 전달되지 않는다
 6. 점수 3점 미만인 후보는 **크롤링되지 않는다** (크롤러 호출 횟수로 검증 — 비용·시간 절감이 ADR-007의 요점이다)
+7. **수집 전면 실패 구분** — 모든 `NewsSource`가 `FetchResult.failure()`를 반환하면 status는 EMPTY지만 `candidateCount == 0`이고 `failedSourceCount == 소스 수`다
+8. 모든 소스가 정상인데 결과만 0건이면 `failedSourceCount == 0`이다 (7번과 구분되어야 한다)
 
 ## Acceptance Criteria
 
