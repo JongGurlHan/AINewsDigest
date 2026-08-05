@@ -1,0 +1,15 @@
+## 테스트 전용 설정 — 외부 DB 없이 `./gradlew build`가 통과하도록 인메모리 H2를 사용한다.
+## 운영 설정은 src/main/resources/application.yml (PostgreSQL).
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    # db/migration이 비어 있는 동안 비활성화. 마이그레이션이 생기면 켜고
+    # Testcontainers PostgreSQL로 전환할 것.
+    enabled: false

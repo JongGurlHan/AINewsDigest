@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: ainewsdigest
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ainewsdigest}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 스키마는 Flyway가 관리한다. Hibernate가 DDL을 건드리지 않게 한다.
+      ddl-auto: validate
+  flyway:
+    locations: classpath:db/migration
+  thymeleaf:
+    cache: false
