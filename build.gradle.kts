@@ -23,6 +23,10 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-thymeleaf")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	// Boot 4는 모듈이 쪼개져서 starter-webmvc가 RestClient를 가져오지 않는다.
+	// RestClientAutoConfiguration(RestClient.Builder 빈)과 spring.http.client.* 프로퍼티는
+	// 이 스타터에만 들어 있다. 빼면 수집·OpenAI·텔레그램 어댑터가 전부 기동 실패한다 (ADR-015).
+	implementation("org.springframework.boot:spring-boot-starter-restclient")
 	implementation("org.flywaydb:flyway-database-postgresql")
 
 	// 기사 본문 추출(HTML) / RSS·Atom 파싱
