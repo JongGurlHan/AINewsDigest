@@ -1,0 +1,19 @@
+{
+  "project": "AI News Digest",
+  "phase": "0-mvp",
+  "steps": [
+    { "step": 0, "name": "domain-entities", "status": "pending" },
+    { "step": 1, "name": "url-normalizer", "status": "pending" },
+    { "step": 2, "name": "collect-sources", "status": "pending" },
+    { "step": 3, "name": "article-extractor", "status": "pending" },
+    { "step": 4, "name": "curation-openai", "status": "pending" },
+    { "step": 5, "name": "message-builder", "status": "pending" },
+    { "step": 6, "name": "digest-generation", "status": "pending" },
+    { "step": 7, "name": "telegram-client", "status": "pending" },
+    { "step": 8, "name": "subscription-flow", "status": "pending" },
+    { "step": 9, "name": "digest-send", "status": "pending" },
+    { "step": 10, "name": "web-archive", "status": "pending" },
+    { "step": 11, "name": "scheduler-ops", "status": "pending" },
+    { "step": 12, "name": "deploy-ci", "status": "pending" }
+  ]
+}
