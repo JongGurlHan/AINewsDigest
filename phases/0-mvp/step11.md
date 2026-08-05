@@ -53,7 +53,7 @@ public void notifyWarning(String title, String detail);
 | 생성 중 예외 발생 | failure |
 | 발송 시 해당 날짜 다이제스트 없음 (`digestFound == false`) | failure |
 | 발송 중 예외 발생 | failure |
-| 발송 실패 구독자가 전체의 30% 이상 | warning |
+| 발송 실패 구독자가 시도분의 30% 이상 (`failed / totalSubscribers`) | warning |
 | 자동 해지가 발생함 | warning |
 
 ### 데드맨스위치

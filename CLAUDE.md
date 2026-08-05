@@ -8,7 +8,7 @@
 - Gradle, Kotlin DSL (`build.gradle.kts`)
 - Spring MVC + Thymeleaf (서버 사이드 렌더링)
 - Spring Data JPA + PostgreSQL
-- Flyway (스키마 마이그레이션), 테스트 DB는 인메모리 H2
+- Flyway (스키마 마이그레이션), 테스트 DB는 Testcontainers PostgreSQL (H2 금지 — ADR-011)
 - 기본 패키지: `com.example.ainewsdigest`
 
 - CRITICAL: Boot 4에서 의존성 좌표가 바뀌었다. Boot 3 관례를 쓰지 말 것:

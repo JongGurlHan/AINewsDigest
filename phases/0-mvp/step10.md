@@ -22,8 +22,9 @@ Thymeleaf 서버 사이드 렌더링으로 3개 화면을 만든다.
 | `GET /archive` | 목록 | 발송 날짜별 목록, 페이징 (20개씩) |
 | `GET /archive/{date}` | 상세 | 해당 날짜 다이제스트 전체. `yyyy-MM-dd` 형식 |
 
-- **`status`가 `SENT`인 것만 보여준다.** `PENDING`은 아직 발송 전이라 노출하면 안 된다
-- `EMPTY`인 날은 목록에 "뉴스 없음"으로 표시한다
+- **`sentAt`이 채워진 것만 보여준다.** 미발송분은 아직 구독자에게 나가지 않았으므로 노출하면 안 된다
+- `EMPTY`인 날도 **발송됐다면 목록에 노출하고** "뉴스 없음"으로 표시한다. `DigestView.empty = (status == EMPTY)`
+- **`status == SENT`로 필터링하지 마라.** EMPTY는 발송돼도 status가 EMPTY로 남으므로 그 날짜가 아카이브에서 통째로 사라진다 (ARCHITECTURE.md "다이제스트 상태 규칙")
 - 존재하지 않는 날짜는 404를 반환한다
 - 잘못된 날짜 형식은 400을 반환한다
 
@@ -85,12 +86,13 @@ ainewsdigest:
 4. `GET /archive/2026-08-05` 가 200이고 항목들이 렌더링된다
 5. 없는 날짜는 404
 6. `GET /archive/2026-13-99` 같은 잘못된 형식은 400
-7. `PENDING` 다이제스트는 어느 화면에도 노출되지 않는다
+7. 미발송(`sentAt == null`) 다이제스트는 어느 화면에도 노출되지 않는다
 
 `DigestQueryServiceTest` — Testcontainers + `@SpringBootTest`
 
-8. `SENT`만 조회된다
-9. 목록 조회 시 항목까지 한 번에 가져온다 (N+1 미발생 — 쿼리 카운트 또는 fetch join 검증)
+8. `sentAt`이 채워진 것만 조회된다
+9. **발송된 `EMPTY` 다이제스트가 목록에 나오고 `DigestView.empty == true`다** (status로 걸러 사라지지 않는다)
+10. 목록 조회 시 항목까지 한 번에 가져온다 (N+1 미발생 — 쿼리 카운트 또는 fetch join 검증)
 
 ## Acceptance Criteria
 
@@ -119,5 +121,5 @@ ainewsdigest:
 - CSS 프레임워크(Tailwind, Bootstrap 등)를 추가하지 마라. 이유: 순수 CSS로 작성하기로 했다
 - 관리자 페이지나 Spring Security를 추가하지 마라. 이유: PRD MVP 제외 사항이다
 - RSS 출력(`/feed.xml`)을 만들지 마라. 이유: PRD MVP 제외 사항이다
-- `PENDING` 다이제스트를 노출하지 마라. 이유: 아직 구독자에게 발송되지 않은 내용이 웹에 먼저 뜬다
+- 미발송(`sentAt == null`) 다이제스트를 노출하지 마라. 이유: 아직 구독자에게 발송되지 않은 내용이 웹에 먼저 뜬다
 - 기존 테스트를 깨뜨리지 마라

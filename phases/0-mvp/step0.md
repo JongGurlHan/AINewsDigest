@@ -50,7 +50,11 @@ public enum DigestStatus { PENDING, SENT, EMPTY, FAILED }
 //   static Digest empty(LocalDate date, String messageText, Instant now)
 //   void addItem(DigestItem item)          // 양방향 연관관계를 여기서 맞춘다
 //   void markSent(Instant now)
-//   void markFailed()
+//     -> PENDING이면 status를 SENT로 바꾸고 sentAt = now
+//     -> EMPTY이면 status를 EMPTY로 유지한 채 sentAt = now 만 채운다
+//        이유: "그날 뉴스가 없었다"는 정보가 발송과 함께 사라지면 안 된다.
+//              ARCHITECTURE.md "다이제스트 상태 규칙" / ADR-014
+//   boolean isSent()                       // sentAt != null
 
 // digest/DigestItem.java  — table: digest_item
 // 필드: id, digest(@ManyToOne(fetch=LAZY)), position, titleKo, summaryKo,
@@ -85,12 +89,18 @@ public interface DigestRepository extends JpaRepository<Digest, Long> {
     List<String> findTitlesSince(@Param("since") LocalDate since);
 }
 
-public interface DeliveryLogRepository extends JpaRepository<DeliveryLog, Long> {}
+public interface DeliveryLogRepository extends JpaRepository<DeliveryLog, Long> {
+    // 발송 재개용: 이 다이제스트에서 이미 발송에 성공한 구독자 ID 집합
+    @Query("...")
+    List<Long> findSubscriberIdsByDigestIdAndStatus(@Param("digestId") Long digestId,
+                                                    @Param("status") DeliveryStatus status);
+}
 ```
 
 ### 핵심 규칙 (반드시 지킬 것)
 
 - **Enum은 반드시 `@Enumerated(EnumType.STRING)`으로 매핑한다.** ORDINAL은 enum 상수 순서를 바꾸는 순간 기존 데이터의 의미가 조용히 뒤바뀐다
+- **다이제스트의 발송 여부는 `status`가 아니라 `sentAt`으로 판정한다.** `status`는 콘텐츠 성격, `sentAt`은 발송 여부다. 이 규칙을 step 8·9·10이 그대로 따른다 (ARCHITECTURE.md "다이제스트 상태 규칙")
 - `LocalDate digestDate`는 `date`, `Instant`는 `timestamptz` 컬럼에 대응한다
 - 시간은 전부 `Instant`를 쓴다. `LocalDateTime`을 쓰지 마라 — 타임존 정보가 사라진다
 - 엔티티에 `@Transactional`을 붙이지 마라
@@ -109,6 +119,8 @@ public interface DeliveryLogRepository extends JpaRepository<DeliveryLog, Long> 
 4. **같은 `digestDate`로 `Digest`를 두 번 저장하면 제약 위반 예외가 발생한다** (하루 1회 발송 멱등성)
 5. `findNormalizedUrlsSince` / `findTitlesSince`가 기간 필터링을 올바르게 한다
 6. `Subscriber.unsubscribe()` 후 `findAllByStatus(ACTIVE)`에 안 잡힌다
+7. `markSent()`가 PENDING은 SENT로 바꾸고, **EMPTY는 status를 EMPTY로 유지한 채 `sentAt`만 채운다**
+8. `findSubscriberIdsByDigestIdAndStatus`가 해당 다이제스트의 SUCCESS 구독자 ID만 돌려준다 (다른 다이제스트·FAILED 로그는 섞이지 않는다)
 
 ## Acceptance Criteria
 
@@ -133,6 +145,7 @@ public interface DeliveryLogRepository extends JpaRepository<DeliveryLog, Long> 
 ## 금지사항
 
 - `V1__init.sql`을 수정하지 마라. 이유: 스키마는 이미 실제 PostgreSQL에서 검증됐다. 엔티티를 스키마에 맞춰야지 그 반대가 아니다. 매핑이 안 맞으면 엔티티를 고쳐라
+- `Digest.markFailed()`를 만들지 마라. 이유: `FAILED`는 스키마의 예약값이고 MVP 흐름에는 저장 경로가 없다(생성 실패 시 예외를 전파하고 행을 만들지 않는다). FAILED로 저장하면 `digest_date` UNIQUE와 step 6의 멱등성 체크에 걸려 그날의 수동 재실행이 영구히 막힌다
 - 새 마이그레이션 파일(`V2__*.sql`)을 만들지 마라. 이유: 이 step의 범위는 기존 스키마 매핑이다
 - Lombok을 추가하지 마라. 이유: 의존성에 없다. 생성자와 접근자를 직접 작성하라
 - 서비스·컨트롤러 클래스를 만들지 마라. 이유: 이 step은 영속성 계층만 다룬다

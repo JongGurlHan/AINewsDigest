@@ -49,25 +49,29 @@ Scheduler → DigestGenerationService
   4. ArticleSelector: 후보 제목·출처·points만 LLM에 전달 → 1~5점 채점 → 상위 8건
   5. ArticleContentExtractor: 8건 본문 크롤링 (타임아웃 5초, 실패 시 해당 건 탈락)
   6. 3점 이상 & 본문 확보된 것 중 상위 3~5건 선정
-  7. 0건이면 Digest(status=EMPTY)로 저장하고 종료
+  7. 0건이면 Digest(status=EMPTY)로 저장하고 종료 (EMPTY도 발송 대상이다 — 아래 "다이제스트 상태 규칙")
   8. ArticleSummarizer: 한글 제목 + 요약(건당 600자 이내) 생성
   9. DigestMessageBuilder: HTML 조립 → 4,000자 초과 시 하위 순위부터 제거
  10. Digest(status=PENDING) + DigestItem 저장
- 11. 헬스체크 핑 전송
 ```
+
+생성 단계에서는 헬스체크 핑을 보내지 않는다. 핑은 발송 성공 후에만 보낸다(ADR-010). 생성 시점에 같은 핑을 보내면 07:30 발송이 통째로 실패해도 외부에서는 정상으로 관측된다.
 
 ### 다이제스트 발송 (매일 07:30 KST)
 ```
 Scheduler → DigestSendService
-  1. 오늘자 PENDING Digest 조회. 없으면 관리자에게 알림 후 종료
+  1. 오늘자 미발송 Digest(sent_at IS NULL) 조회. PENDING·EMPTY 모두 발송 대상이다
+       없으면 "다이제스트 없음"으로 보고하고 종료 (관리자 알림은 스케줄러가 한다)
+       이미 sent_at이 채워져 있으면 아무것도 하지 않는다 (멱등성)
   2. status=ACTIVE 구독자 조회
-  3. 구독자별 Messenger.send() 호출
+  3. 이 Digest에 대해 이미 SUCCESS로 기록된 구독자를 순회 대상에서 제외한다 (재개)
+  4. 구독자별 Messenger.send() 호출
        403 Forbidden → 해당 구독자 UNSUBSCRIBED 전환
        429 Too Many Requests → 응답의 retry_after만큼 대기 후 재시도
        5xx → 지수 백오프 최대 3회
        DeliveryLog 기록
-  4. Digest(status=SENT, sent_at) 갱신
-  5. 헬스체크 핑 전송. 실패율이 높으면 관리자에게 알림
+  5. sent_at 기록 (상태 전이는 아래 "다이제스트 상태 규칙")
+  6. 헬스체크 핑 전송. 실패율이 높으면 관리자에게 알림
 ```
 
 ### 구독 (상시)
@@ -77,6 +81,27 @@ TelegramUpdatePoller (백그라운드 롱폴링, getUpdates)
   /stop            → status=UNSUBSCRIBED
   /help            → 안내 메시지
 ```
+
+## 다이제스트 상태 규칙
+
+**발송 여부는 `status`가 아니라 `sent_at`으로 판정한다.** `status`는 콘텐츠의 성격(항목이 있는가 / 뉴스가 없었는가)을 나타내고 `sent_at`은 발송 여부를 나타낸다. 두 축이 섞이면 EMPTY를 SENT로 덮어쓰는 순간 "그날 뉴스가 없었다"는 정보가 사라진다.
+
+```
+markSent(now):  PENDING -> SENT,  sentAt = now
+                EMPTY   -> EMPTY, sentAt = now   (status 보존)
+
+발송 대상     : sentAt == null    (PENDING·EMPTY 모두)
+아카이브 노출 : sentAt != null
+"뉴스 없음"   : status == EMPTY
+```
+
+- `sent_at` 컬럼은 `V1__init.sql`에 이미 있다. 이 규칙에 스키마 변경은 필요 없다
+- EMPTY로 나간 날이 DB에 그대로 남으므로 ADR-013의 점수 임계값을 튜닝할 때 발송 빈도 지표로 쓸 수 있다
+- `FAILED`는 스키마의 예약값이며 MVP 흐름에서는 저장되지 않는다. 생성이 실패하면 Digest 행 자체를 만들지 않는다. FAILED로 저장하면 `digest_date` UNIQUE와 생성 멱등성 체크에 걸려 그날의 수동 재실행이 영구히 막힌다
+
+### 발송 보장 수준 — at-least-once
+
+텔레그램 API 호출과 `DeliveryLog` 커밋 사이에 프로세스가 죽으면 실제 발송 여부를 알 수 없으므로 exactly-once는 불가능하다. 대신 **이미 SUCCESS 로그가 있는 구독자를 건너뛰는 재개 규칙**으로 중복을 억제한다. 커밋 직전에 죽은 1건은 재실행 시 중복 발송될 수 있으며, 이는 알려진 한계로 감수한다.
 
 ## 트랜잭션 경계
 - Service 메서드 단위로 열고 닫는다. 조회 전용 메서드는 `readOnly = true`

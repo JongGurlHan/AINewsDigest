@@ -37,7 +37,8 @@ public record GenerationResult(DigestStatus status, int itemCount, int candidate
 7. **`score >= minScore(3)` 인 것만 남기고**, 상위 `selectCount(8)`건을 취한다
 8. 그 8건에 대해서만 `articleContentExtractor.extract(url)`를 호출한다. 빈 값이면 탈락
 9. 남은 것 중 상위 `maxItems(5)`건을 선정한다
-10. 0건이면 `Digest.empty(date, 뉴스없음메시지)`를 저장하고 종료 (status = EMPTY)
+10. 0건이면 `Digest.empty(date, 뉴스없음메시지)`를 저장하고 종료 (status = EMPTY).
+    **EMPTY는 "끝난 것"이 아니라 step 9의 발송 대상이다.** `sentAt`이 비어 있으므로 07:30에 그대로 발송된다 (PRD: 침묵하지 않는다)
 11. `articleSummarizer.summarize(...)` 로 한글 제목·요약 생성
 12. `digestMessageBuilder.build(date, summarized)` 로 메시지 조립.
     **빌더가 길이 때문에 항목을 줄였다면(`includedCount`), 저장하는 `DigestItem`도 그 건수에 맞춘다.**

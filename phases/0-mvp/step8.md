@@ -49,8 +49,10 @@ public void handle(TelegramUpdate update);
 
 - 명령 앞뒤 공백을 제거하고, `/start@봇이름` 형태도 `/start`로 인식한다
 - `payload`는 `/start ` 뒤의 문자열. 없으면 `null`. `Subscriber.source`에 저장한다
-- 최근 다이제스트는 `status`가 `SENT`인 것 중 `digestDate`가 가장 큰 것을 쓴다.
-  `PENDING`을 보내지 마라 — 아직 발송 전이라 오늘 아침에 또 받게 된다
+- 최근 다이제스트는 **`sentAt != null` 이면서 `status != EMPTY`인 것 중 `digestDate`가 가장 큰 것**을 쓴다
+  - `sentAt == null`인 것을 보내지 마라 — 아직 발송 전이라 오늘 아침에 또 받게 된다
+  - `EMPTY`를 보내지 마라 — 환영 메시지 직후에 "오늘의 AI 뉴스는 없습니다"가 이어지면 첫인상이 망가진다. 한 칸 더 거슬러 올라가 내용이 있는 다이제스트를 보낸다
+  - 발송 여부를 `status == SENT`로 판정하지 마라. EMPTY는 발송돼도 status가 EMPTY로 남는다 (ARCHITECTURE.md "다이제스트 상태 규칙")
 
 ### 롱폴링 러너
 
@@ -85,7 +87,8 @@ ainewsdigest:
 
 5. `/start` 처리 시 환영 메시지와 최근 다이제스트, 총 2통이 발송된다
 6. 발송된 다이제스트가 없으면 환영 메시지 1통만 나가고 예외가 없다
-7. `PENDING` 다이제스트만 있으면 그것을 보내지 않는다
+7. 미발송(`sentAt == null`) 다이제스트만 있으면 그것을 보내지 않는다
+8. 가장 최근 발송분이 `EMPTY`면 그것을 건너뛰고 그 이전의 내용 있는 다이제스트를 보낸다
 8. `/start@my_bot` 도 `/start`로 인식된다
 9. `/stop` 처리 시 상태가 UNSUBSCRIBED로 바뀌고 확인 메시지가 나간다
 10. 알 수 없는 명령에는 안내 메시지가 나간다
