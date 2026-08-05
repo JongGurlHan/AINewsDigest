@@ -78,8 +78,6 @@ public void notifyWarning(String title, String detail);
 | 발송 중 예외 발생 | failure |
 | **발송 전원 실패** (`sentAtRecorded == false`) | **failure** |
 | 발송 실패 구독자가 시도분의 30% 이상 (`failed / totalSubscribers`) | warning |
-| **자동 해지 스윕을 건너뜀** (`autoUnsubscribeSkipped == true`) | **warning** |
-| 자동 해지가 발생함 | warning |
 
 **발송 전원 실패는 반드시 failure로 알려라.** `sentAtRecorded == false`는 다이제스트가 미발송 상태로 남아 재실행을 기다린다는 뜻이다(ADR-018). 실패율 30% 경고와 같은 등급으로 묻으면, 아무도 받지 못한 날이 "실패율이 좀 높았던 날"로 보인다.
 
@@ -106,10 +104,6 @@ public void pingSuccess();
 ainewsdigest:
   scheduler:
     enabled: true          # src/test/resources/application.yml 에서는 false
-    zone: Asia/Seoul
-    generate-cron: "0 0 7 * * *"
-    retry-generate-cron: "0 15 7 * * *"
-    send-cron: "0 30 7 * * *"
   ops:
     healthcheck-url: ${HEALTHCHECK_URL:}
 ```
@@ -141,16 +135,14 @@ java -jar app.jar --ainewsdigest.run=send
 7. `admin-chat-id`가 비어 있으면 `AdminNotifier`가 예외 없이 무시한다
 8. `Messenger`가 예외를 던져도 `AdminNotifier`가 예외를 전파하지 않는다
 9. `HealthPinger`가 500을 받아도 예외를 던지지 않는다 (WireMock)
-10. cron 표현식과 zone 설정이 `Asia/Seoul`로 바인딩된다
-11. **`candidateCount == 0` && `failedSourceCount > 0`이면 failure 알림이 간다** (수집 전면 실패)
-12. **`candidateCount == 0` && `failedSourceCount == 0`이면 알림이 가지 않는다** (진짜 뉴스 없는 날은 정상이다)
-13. `failedSourceCount > 0`인데 후보가 있으면 warning 알림이 간다
-14. **`retryGenerate()`가 오늘자 다이제스트가 이미 있으면 생성 서비스를 호출하되 아무 알림도 보내지 않는다** (정상일에 무해)
-15. **07:00 실패 후 07:15가 성공하면 "복구됨" warning이 간다**
-16. **07:15도 실패하면 failure가 간다**
-17. **`sentAtRecorded == false`면 failure 알림이 간다** (전원 실패 — ADR-018)
-18. `autoUnsubscribeSkipped == true`면 warning 알림이 간다
-19. `retryGenerate()`도 `Asia/Seoul` 기준 날짜를 쓴다 (고정 `Clock`으로 검증)
+10. **`candidateCount == 0` && `failedSourceCount > 0`이면 failure 알림이 간다** (수집 전면 실패)
+11. **`candidateCount == 0` && `failedSourceCount == 0`이면 알림이 가지 않는다** (진짜 뉴스 없는 날은 정상이다)
+12. `failedSourceCount > 0`인데 후보가 있으면 warning 알림이 간다
+13. **`retryGenerate()`가 오늘자 다이제스트가 이미 있으면 생성 서비스를 호출하되 아무 알림도 보내지 않는다** (정상일에 무해)
+14. **07:00 실패 후 07:15가 성공하면 "복구됨" warning이 간다**
+15. **07:15도 실패하면 failure가 간다**
+16. **`sentAtRecorded == false`면 failure 알림이 간다** (전원 실패 — ADR-018)
+17. `retryGenerate()`도 `Asia/Seoul` 기준 날짜를 쓴다 (고정 `Clock`으로 검증)
 
 `Clock`을 빈으로 등록해 주입받아라. 시각에 의존하는 로직을 `Instant.now()` 직접 호출로 만들면 테스트할 수 없다.
 
@@ -184,5 +176,6 @@ java -jar app.jar --ainewsdigest.run=send
 - 후보 0건을 무조건 정상으로 처리하지 마라. 이유: 수집 전면 장애와 구분되지 않아 ADR-010의 감시가 통째로 무력화된다. `failedSourceCount`로 갈라야 한다
 - `spring.task.scheduling.pool.size`를 늘리지 마라. 이유: 생성이 끝나기 전에 발송이 시작돼 "다이제스트 없음" 오탐이 난다. 07:00 생성이 길어지면 발송은 지연 실행되는 것이 맞다
 - `retryGenerate()`에 별도의 멱등성 검사를 만들지 마라. 이유: `generate()`가 이미 `existsByDigestDate`로 막고 있다. 검사가 두 벌이 되면 규칙이 갈라진다
+- cron·zone을 yml 설정 키로 빼지 마라. 이유: `@Scheduled` 어노테이션의 리터럴을 읽는 코드만 있으면 된다. 아무도 읽지 않는 키는 죽은 키다 (step 4가 `min-items`를 두지 않은 것과 같은 원칙). 발송 시각은 제품 결정이라 바뀌면 재빌드해도 무방하다
 - 발송 전원 실패를 실패율 경고로 뭉뚱그리지 마라. 이유: 그날 다이제스트가 미발송으로 남아 재실행을 기다리는 상태다. 경고 등급으로 묻으면 아무도 못 받은 날이 "실패율이 좀 높았던 날"로 보인다
 - 기존 테스트를 깨뜨리지 마라

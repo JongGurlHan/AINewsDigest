@@ -31,14 +31,17 @@
 public enum SubscriberStatus { ACTIVE, UNSUBSCRIBED }
 
 // subscription/Subscriber.java  — table: subscriber
-// 필드: id, chatId, status, source, subscribedAt, unsubscribedAt, consecutiveFailures
+// 필드: id, chatId, status, source, subscribedAt, unsubscribedAt
 // 도메인 동작을 엔티티에 둔다 (setter 남발 금지):
 //   static Subscriber subscribe(long chatId, String source, Instant now)
-//   void resubscribe(Instant now)          // UNSUBSCRIBED -> ACTIVE, 실패 카운터 0으로
+//   void resubscribe(Instant now)          // UNSUBSCRIBED -> ACTIVE
 //   void unsubscribe(Instant now)          // -> UNSUBSCRIBED
-//   void recordDeliveryFailure()           // consecutiveFailures++
-//   void recordDeliverySuccess()           // consecutiveFailures = 0
 //   boolean isActive()
+//
+// 주의: 스키마의 consecutive_failures 컬럼은 매핑하지 않는다. MVP 검수에서
+// 자동 해지 카운터를 제거했다 (죽은 구독자는 step 9의 403 즉시 해지가 처리한다).
+// V1은 수정 금지지만 not null default 0이라 INSERT에 무해하고,
+// ddl-auto: validate는 엔티티에 없는 DB 컬럼을 문제 삼지 않는다.
 
 // digest/DigestStatus.java
 public enum DigestStatus { PENDING, SENT, EMPTY, FAILED }

@@ -119,7 +119,7 @@ ainewsdigest:
 
 1. 신규 `chatId`로 `start()` → 구독자가 ACTIVE로 생성되고 `source`에 payload가 저장된다
 2. 같은 `chatId`로 `start()`를 3번 호출해도 구독자 행은 1개다 (멱등)
-3. `stop()` 후 `start()` → REACTIVATED, 상태 ACTIVE, `consecutiveFailures`가 0으로 초기화된다
+3. `stop()` 후 `start()` → REACTIVATED, 상태 ACTIVE
 4. 미등록 `chatId`로 `stop()` 호출 시 예외가 나지 않는다
 5. **200자 payload로 `/start` 해도 구독자가 ACTIVE로 생성되고 `source`가 50자 이하다**
 6. **한글·이모지·따옴표가 섞인 payload도 예외 없이 처리되고, 정제 후 비면 `source`가 null이다**
