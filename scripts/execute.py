@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -65,6 +66,7 @@ class StepExecutor:
         self._phase_dir_name = phase_dir_name
         self._top_index_file = self._phases_dir / "index.json"
         self._auto_push = auto_push
+        self._cli = None
 
         if not self._phase_dir.is_dir():
             print(f"ERROR: {self._phase_dir} not found")
@@ -82,6 +84,7 @@ class StepExecutor:
 
     def run(self):
         self._print_header()
+        self._cli_path()  # fail-fast: CLI가 없으면 여기서 중단
         self._check_blockers()
         self._checkout_branch()
         guardrails = self._load_guardrails()
@@ -108,7 +111,10 @@ class StepExecutor:
 
     def _run_git(self, *args) -> subprocess.CompletedProcess:
         cmd = ["git"] + list(args)
-        return subprocess.run(cmd, cwd=self._root, capture_output=True, text=True)
+        return subprocess.run(
+            cmd, cwd=self._root, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
 
     def _checkout_branch(self):
         branch = f"feat-{self._phase_name}"
@@ -226,6 +232,17 @@ class StepExecutor:
 
     # --- Claude 호출 ---
 
+    def _cli_path(self) -> str:
+        """claude CLI의 전체 경로. Windows에서는 PATHEXT 해석이 필요하므로 which()로 찾는다."""
+        if self._cli is None:
+            found = shutil.which("claude")
+            if found is None:
+                print("\n  ERROR: 'claude' CLI를 PATH에서 찾을 수 없습니다.")
+                print("  설치: npm i -g @anthropic-ai/claude-code")
+                sys.exit(1)
+            self._cli = found
+        return self._cli
+
     def _invoke_claude(self, step: dict, preamble: str) -> dict:
         step_num, step_name = step["step"], step["name"]
         step_file = self._phase_dir / f"step{step_num}.md"
@@ -234,10 +251,12 @@ class StepExecutor:
             print(f"  ERROR: {step_file} not found")
             sys.exit(1)
 
+        # 프롬프트는 수십 KB라 argv로는 Windows 커맨드라인 상한을 넘는다. stdin으로 넘긴다.
         prompt = preamble + step_file.read_text(encoding="utf-8")
         result = subprocess.run(
-            ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "json", prompt],
-            cwd=self._root, capture_output=True, text=True, timeout=1800,
+            [self._cli_path(), "-p", "--dangerously-skip-permissions", "--output-format", "json"],
+            input=prompt, cwd=self._root, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=1800,
         )
 
         if result.returncode != 0:

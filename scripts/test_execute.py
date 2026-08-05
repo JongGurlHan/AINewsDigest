@@ -423,28 +423,47 @@ class TestCommitStep:
 # _invoke_claude (mocked)
 # ---------------------------------------------------------------------------
 
+CLI = r"C:\fake\claude.CMD"
+
+
 class TestInvokeClaude:
     def test_invokes_claude_with_correct_args(self, executor):
         mock_result = MagicMock(returncode=0, stdout='{"result": "ok"}', stderr="")
         step = {"step": 2, "name": "ui"}
         preamble = "PREAMBLE\n"
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with patch("shutil.which", return_value=CLI), \
+                patch("subprocess.run", return_value=mock_result) as mock_run:
             output = executor._invoke_claude(step, preamble)
 
         cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "claude"
+        kwargs = mock_run.call_args[1]
+        assert cmd[0] == CLI
         assert "-p" in cmd
         assert "--dangerously-skip-permissions" in cmd
         assert "--output-format" in cmd
-        assert "PREAMBLE" in cmd[-1]
-        assert "UI를 구현하세요" in cmd[-1]
+
+        # 프롬프트는 argv가 아니라 stdin으로 넘어간다 (Windows 커맨드라인 길이 제한)
+        assert "PREAMBLE" in kwargs["input"]
+        assert "UI를 구현하세요" in kwargs["input"]
+        assert not any("PREAMBLE" in arg for arg in cmd)
+        assert kwargs["encoding"] == "utf-8"
+
+    def test_exits_when_cli_not_found(self, executor):
+        step = {"step": 2, "name": "ui"}
+
+        with patch("shutil.which", return_value=None):
+            with pytest.raises(SystemExit) as exc_info:
+                executor._invoke_claude(step, "preamble")
+
+        assert exc_info.value.code == 1
 
     def test_saves_output_json(self, executor):
         mock_result = MagicMock(returncode=0, stdout='{"ok": true}', stderr="")
         step = {"step": 2, "name": "ui"}
 
-        with patch("subprocess.run", return_value=mock_result):
+        with patch("shutil.which", return_value=CLI), \
+                patch("subprocess.run", return_value=mock_result):
             executor._invoke_claude(step, "preamble")
 
         output_file = executor._phase_dir / "step2-output.json"
@@ -464,7 +483,8 @@ class TestInvokeClaude:
         mock_result = MagicMock(returncode=0, stdout="{}", stderr="")
         step = {"step": 2, "name": "ui"}
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with patch("shutil.which", return_value=CLI), \
+                patch("subprocess.run", return_value=mock_result) as mock_run:
             executor._invoke_claude(step, "preamble")
 
         assert mock_run.call_args[1]["timeout"] == 1800
