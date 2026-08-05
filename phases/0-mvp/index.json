@@ -7,7 +7,7 @@
       "name": "domain-entities",
       "status": "completed",
       "started_at": "2026-08-06T04:33:18+0900",
-      "completed_at": "2026-08-06T04:56:00+0900",
+      "completed_at": "2026-08-06T04:55:53+0900",
       "summary": "V1__init.sql의 4개 테이블에 대응하는 JPA 엔티티(Subscriber/Digest/DigestItem/DeliveryLog)와 리포지토리 3종을 subscription·digest·delivery 패키지에 추가. 상태 변경은 도메인 메서드로만 하고(markSent는 EMPTY를 보존), Testcontainers @DataJpaTest 13건으로 검증했다."
     },
     {
