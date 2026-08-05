@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "url-normalizer",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-06T04:55:54+0900",
+      "completed_at": "2026-08-06T05:00:12+0900",
+      "summary": "collect 패키지에 상태 없는 UrlNormalizer 빈 추가. java.net.URI만으로 normalize(스킴·호스트 소문자화, https 통일, www·기본포트·fragment·추적파라미터 제거, 쿼리 이름순 정렬, 후행 슬래시 제거, 경로 대소문자 보존)와 extractDomain·isHttpUrl(파이프라인 진입 스킴 관문)을 구현하고 순수 단위 테스트 44건으로 검증했다."
     },
     {
       "step": 2,
