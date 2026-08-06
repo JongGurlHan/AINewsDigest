@@ -206,19 +206,31 @@ public class DigestGenerationService {
 	 *
 	 * <p>추출 실패는 예외가 아니라 {@code Optional.empty()}다. 페이월·봇 차단·SSRF 차단은 매일 일어나는
 	 * 정상 흐름이므로 해당 기사만 탈락시키고 넘어간다. 넉넉히(8건) 고른 이유가 이것이다 (ADR-006).
+	 *
+	 * <p><b>본문을 이미 실어 온 후보는 크롤링하지 않는다</b> ({@code CandidateArticle.content}).
+	 * CHANGELOG 후보의 URL은 raw {@code .md}라 추출기가 "HTML이 아니다"로 반드시 거절한다 —
+	 * 건너뛰지 않으면 그 소스는 한 번도 발송되지 못한다.
 	 */
 	private List<ArticleWithContent> crawl(List<ScoredArticle> selected) {
 		List<ArticleWithContent> extracted = new ArrayList<>();
+		int supplied = 0;
 		for (ScoredArticle article : selected) {
-			Optional<String> content = this.contentExtractor.extract(article.article().url());
-			if (content.isEmpty()) {
-				log.info("본문 확보 실패로 탈락: {}", article.article().url());
+			CandidateArticle candidate = article.article();
+			if (candidate.hasContent()) {
+				extracted.add(new ArticleWithContent(candidate, article.score(), candidate.content()));
+				supplied++;
 				continue;
 			}
-			extracted.add(new ArticleWithContent(article.article(), article.score(), content.get()));
+			Optional<String> content = this.contentExtractor.extract(candidate.url());
+			if (content.isEmpty()) {
+				log.info("본문 확보 실패로 탈락: {}", candidate.url());
+				continue;
+			}
+			extracted.add(new ArticleWithContent(candidate, article.score(), content.get()));
 		}
 		int limit = Math.min(this.curation.maxItems(), extracted.size());
-		log.info("크롤링: {}건 시도 -> {}건 성공 -> 상위 {}건 요약", selected.size(), extracted.size(), limit);
+		log.info("크롤링: {}건 시도 -> {}건 확보(본문 동봉 {}건 포함) -> 상위 {}건 요약",
+				selected.size() - supplied, extracted.size(), supplied, limit);
 		return List.copyOf(extracted.subList(0, limit));
 	}
 

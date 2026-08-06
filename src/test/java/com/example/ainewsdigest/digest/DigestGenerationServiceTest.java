@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -167,6 +168,42 @@ class DigestGenerationServiceTest {
 
 		assertEquals(2, this.extractor.callCount());
 		assertEquals(List.of(candidates.get(0).url(), candidates.get(1).url()), this.extractor.requestedUrls());
+	}
+
+	/**
+	 * 본문을 이미 실어 온 후보(CHANGELOG)는 크롤링하지 않는다. raw 마크다운은 HTML이 아니라
+	 * 크롤링하면 100% 탈락하고, 그러면 그 소스는 영원히 발송되지 못한다.
+	 */
+	@Test
+	void usesSuppliedContentInsteadOfCrawling() {
+		String releaseNotes = "- Fixed a bug where `/compact` could drop the last message";
+		CandidateArticle release = CandidateArticle.of("Claude Code 2.1.222 릴리즈",
+				"https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md?v=2.1.222",
+				"Claude Code", 0, PAST, this.normalizer, releaseNotes).orElseThrow();
+
+		GenerationResult result = service(sources(List.of(release)), FakeArticleSelector.scoringAll(5))
+				.generate(TODAY);
+
+		assertEquals(1, result.itemCount());
+		assertEquals(0, this.extractor.callCount());
+		assertEquals(releaseNotes, this.summarizer.lastArticles().getFirst().content());
+	}
+
+	/** 본문이 없는 후보만 크롤링한다. 동봉분까지 크롤링하면 매일 헛된 요청이 나간다. */
+	@Test
+	void crawlsOnlyTheCandidatesWithoutContent() {
+		List<CandidateArticle> crawlable = candidates(2);
+		CandidateArticle release = CandidateArticle.of("Claude Code 2.1.222 릴리즈",
+				"https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md?v=2.1.222",
+				"Claude Code", 0, PAST, this.normalizer, "- 릴리즈 노트").orElseThrow();
+		List<CandidateArticle> mixed = new ArrayList<>(crawlable);
+		mixed.add(release);
+
+		GenerationResult result = service(sources(mixed), FakeArticleSelector.scoringAll(5)).generate(TODAY);
+
+		assertEquals(3, result.itemCount());
+		assertEquals(2, this.extractor.callCount());
+		assertEquals(crawlable.stream().map(CandidateArticle::url).toList(), this.extractor.requestedUrls());
 	}
 
 	/**

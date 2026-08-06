@@ -91,6 +91,68 @@ class ChangelogClientTest {
 		assertTrue(next.endsWith("?v=2.1.223"), next);
 	}
 
+	/**
+	 * 후보 URL은 raw 마크다운({@code text/plain})이라 step 3의 크롤링이 <b>절대</b> 본문을 얻지 못한다
+	 * ({@code JsoupArticleExtractor}는 HTML만 받는다). 그래서 이미 파싱해 둔 버전 섹션을 후보에 실어 보낸다.
+	 */
+	@Test
+	void carriesTheVersionSectionAsContent() {
+		stubChangelog(Fixtures.read("claude-code-changelog.md"));
+
+		CandidateArticle article = client().fetch(SINCE).articles().get(0);
+
+		assertTrue(article.hasContent());
+		assertTrue(article.content().contains("/compact"), article.content());
+		assertTrue(article.content().contains("Improved subagent tool permission prompts"), article.content());
+	}
+
+	/** 다음 버전 섹션까지 딸려 오면 안 된다. 2.1.221 내용으로 요약된 "2.1.222 릴리즈"가 나간다. */
+	@Test
+	void contentStopsAtTheNextVersionHeading() {
+		stubChangelog(Fixtures.read("claude-code-changelog.md"));
+
+		CandidateArticle article = client().fetch(SINCE).articles().get(0);
+
+		assertFalse(article.content().contains("MCP server reconnection"), article.content());
+		assertFalse(article.content().contains("2.1.221"), article.content());
+	}
+
+	/**
+	 * 릴리즈 노트가 길어도 요약 프롬프트에 통째로 실리면 안 된다. 크롤링 경로의
+	 * {@code max-content-length}와 같은 예산(3,000자)을 쓴다.
+	 */
+	@Test
+	void truncatesAnOverlongSection() {
+		String body = ("- " + "변경".repeat(60) + "\n").repeat(100);
+		stubChangelog("# Changelog\n\n## 9.9.9\n\n" + body + "\n## 9.9.8\n\n- 이전 릴리즈\n");
+
+		String content = client().fetch(SINCE).articles().get(0).content();
+
+		assertEquals(3000, content.codePointCount(0, content.length()));
+	}
+
+	/**
+	 * 헤딩만 있고 변경 목록이 비어 있는 날. 없는 본문을 억지로 실어 보내면 LLM이 릴리즈 내용을 지어낸다.
+	 * 본문 없이 내보내 크롤링 경로로 보내고, 거기서 탈락하는 편이 낫다.
+	 */
+	@Test
+	void leavesContentEmptyWhenTheSectionHasNoBody() {
+		stubChangelog("""
+				# Changelog
+
+				## 2.1.223
+
+				## 2.1.222
+
+				- Fixed a bug where `/compact` could drop the last message
+				""");
+
+		CandidateArticle article = client().fetch(SINCE).articles().get(0);
+
+		assertEquals("Claude Code 2.1.223 릴리즈", article.title());
+		assertFalse(article.hasContent());
+	}
+
 	/** 어댑터가 {@code CandidateArticle.of}를 쓰는지 확인한다 — 정규화 필드가 비면 중복 제거가 몰살한다. */
 	@Test
 	void alwaysPopulatesNormalizedFields() {

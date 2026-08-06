@@ -243,7 +243,7 @@ class DigestMessageBuilderTest {
 
 	private static SummarizedArticle article(String titleKo, String summaryKo, String url, String domain) {
 		CandidateArticle candidate = new CandidateArticle("original title", url, url, domain, "Hacker News", 100,
-				Instant.parse("2026-08-05T00:00:00Z"));
+				Instant.parse("2026-08-05T00:00:00Z"), null);
 		return new SummarizedArticle(candidate, 5, titleKo, summaryKo);
 	}
 

@@ -18,8 +18,13 @@ import java.util.regex.Pattern;
  * GitHub raw의 마크다운 CHANGELOG 수집기. <b>가장 최신 버전 섹션 하나만</b> 후보로 만든다.
  *
  * <p>Anthropic은 RSS를 제공하지 않아 Claude Code 릴리즈는 이 파일이 1차 출처다 (ADR-005).
- * 본문(다음 헤딩 전까지의 변경 목록)은 후보에 싣지 않는다 — {@code CandidateArticle}은 메타데이터만
- * 나르고, 본문은 step 3의 크롤링이 URL에서 얻는다.
+ *
+ * <h2>본문을 후보에 실어 보낸다</h2>
+ * 다른 소스와 달리 <b>변경 목록(다음 헤딩 전까지)을 후보에 담는다.</b> 후보 URL이 raw
+ * {@code .md}({@code text/plain})라 {@code JsoupArticleExtractor}가 "HTML이 아니다"로 반드시 거절하기
+ * 때문이다. 실어 보내지 않으면 이 소스는 LLM 채점 비용만 쓰고 크롤링에서 100% 탈락한다 —
+ * 하루도 빠짐없이, 영원히. 그리고 이미 파일 전문을 받아 섹션까지 파싱한 마당에 같은 내용을
+ * 다시 받아오게 할 이유도 없다.
  */
 @Component
 public class ChangelogClient implements NewsSource {
@@ -36,6 +41,18 @@ public class ChangelogClient implements NewsSource {
 	 */
 	private static final Pattern VERSION_HEADING =
 			Pattern.compile("^##\\s+v?(\\d[\\w.\\-]*)", Pattern.MULTILINE);
+
+	/**
+	 * 섹션의 끝. 버전 헤딩이 아니라 <b>모든 {@code ##} 헤딩</b>을 경계로 쓴다 —
+	 * {@code ## Unreleased}가 뒤따르는 경우 그 내용까지 릴리즈 노트로 딸려가면 안 된다.
+	 */
+	private static final Pattern ANY_HEADING = Pattern.compile("^##\\s", Pattern.MULTILINE);
+
+	/**
+	 * 크롤링 경로의 {@code ainewsdigest.collect.extractor.max-content-length}와 같은 예산이다.
+	 * 본문 출처가 다를 뿐 요약 프롬프트에 실리는 양은 같아야 한다.
+	 */
+	private static final int MAX_CONTENT_LENGTH = 3000;
 
 	private final RestClient restClient;
 
@@ -78,21 +95,56 @@ public class ChangelogClient implements NewsSource {
 		if (markdown == null) {
 			return FetchResult.failure();
 		}
-		Optional<String> version = latestVersion(markdown);
-		if (version.isEmpty()) {
+		Optional<Release> release = latestRelease(markdown);
+		if (release.isEmpty()) {
 			// 형식이 바뀌었다는 뜻이다. 조용히 빈 결과로 넘어가면 이 소스가 죽은 채로 방치된다.
 			log.warn("CHANGELOG에서 버전 헤딩을 찾지 못했다 (url={})", properties.url());
 			return FetchResult.failure();
 		}
+		String version = release.get().version();
 		return CandidateArticle
-				.of(title(version.get()), releaseUrl(version.get()), SOURCE_NAME, 0, Instant.now(), normalizer)
+				.of(title(version), releaseUrl(version), SOURCE_NAME, 0, Instant.now(), normalizer,
+						release.get().body())
 				.map(article -> FetchResult.of(List.of(article)))
 				.orElseGet(() -> FetchResult.of(List.of()));
 	}
 
-	private static Optional<String> latestVersion(String markdown) {
+	private static Optional<Release> latestRelease(String markdown) {
 		Matcher matcher = VERSION_HEADING.matcher(markdown);
-		return matcher.find() ? Optional.of(matcher.group(1)) : Optional.empty();
+		if (!matcher.find()) {
+			return Optional.empty();
+		}
+		return Optional.of(new Release(matcher.group(1), body(markdown, matcher.end())));
+	}
+
+	/**
+	 * 버전 헤딩 다음부터 그 다음 {@code ##} 헤딩 전까지. 변경 목록이 비어 있으면 {@code null}을 돌려
+	 * 본문 없는 후보로 만든다 — 빈 본문을 실어 보내면 모델이 릴리즈 내용을 지어낸다.
+	 */
+	private static String body(String markdown, int fromIndex) {
+		Matcher next = ANY_HEADING.matcher(markdown);
+		int end = next.find(fromIndex) ? next.start() : markdown.length();
+		String section = markdown.substring(fromIndex, end).strip();
+		if (section.isEmpty()) {
+			return null;
+		}
+		return truncate(section);
+	}
+
+	/**
+	 * 코드포인트 경계에서 자른다. {@code substring}으로 char 수를 세면 이모지의 UTF-16 서로게이트
+	 * 페어가 반으로 쪼개진다 — 릴리즈 노트에는 이모지가 흔하다.
+	 */
+	private static String truncate(String section) {
+		int codePoints = section.codePointCount(0, section.length());
+		if (codePoints <= MAX_CONTENT_LENGTH) {
+			return section;
+		}
+		return section.substring(0, section.offsetByCodePoints(0, MAX_CONTENT_LENGTH));
+	}
+
+	/** 최신 릴리즈 한 건. 버전과 본문을 따로 찾으면 마크다운을 두 번 훑게 된다. */
+	private record Release(String version, String body) {
 	}
 
 	private static String title(String version) {
