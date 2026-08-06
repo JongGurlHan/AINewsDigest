@@ -64,6 +64,24 @@ ainewsdigest:
       max-redirects: 3
       # 신원을 밝힌다. 봇 차단 회피용 UA 로테이션은 하지 않는다 — 차단된 사이트는 그냥 탈락시킨다.
       user-agent: "AINewsDigest/1.0 (+https://github.com/JongGurlHan)"
+  curation:
+    openai:
+      base-url: https://api.openai.com/v1
+      # 환경변수로만 주입한다. 실제 키를 여기 적어 커밋하면 그 순간 유출이다.
+      api-key: ${OPENAI_API_KEY:}
+      model: gpt-5-mini
+      # 전역값(10s)이 아니라 이 값이 적용된다. 요약 호출은 수십 초가 걸린다 (ADR-015).
+      timeout: 60s
+      # 재시도를 포함한 최대 시도 횟수. 429·5xx·타임아웃만 재시도하고 그 외 4xx는 즉시 포기한다.
+      max-retries: 3
+      retry-backoff: 1s
+    # 이 셋은 파이프라인(step 6)이 읽는다. 선별기·요약기는 건수를 자르지 않는다.
+    min-score: 3          # 이 점수 미만은 채택하지 않는다 (ADR-013)
+    select-count: 8       # 크롤링 실패를 감안해 필요 건수보다 넉넉히 고른다
+    max-items: 5
+    # 요약기가 반환 직전에 코드로 자른다. 프롬프트의 길이 제한은 요청이지 보장이 아니다.
+    max-title-length: 200     # digest_item.title_ko varchar(200)
+    max-summary-length: 600   # PRD 건별 상한
 
 # spring.thymeleaf.cache 는 두지 않는다. 이 파일은 운영 설정이고,
 # 끄면 매 요청마다 템플릿을 다시 파싱한다. 개발 중 핫리로드가 필요하면
