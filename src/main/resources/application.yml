@@ -55,6 +55,15 @@ ainewsdigest:
           url: https://simonwillison.net/atom/everything/
     changelog:
       url: https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md
+    extractor:
+      # 크롤링은 파이프라인에서 가장 느리고 가장 잘 깨지는 구간이다. 오래 붙잡지 않는다.
+      timeout: 5s
+      max-content-length: 3000
+      # 이보다 짧으면 쿠키 배너·페이월 안내문만 긁힌 것이다. 그 텍스트로 요약하면 엉뚱한 내용이 나간다.
+      min-content-length: 200
+      max-redirects: 3
+      # 신원을 밝힌다. 봇 차단 회피용 UA 로테이션은 하지 않는다 — 차단된 사이트는 그냥 탈락시킨다.
+      user-agent: "AINewsDigest/1.0 (+https://github.com/JongGurlHan)"
 
 # spring.thymeleaf.cache 는 두지 않는다. 이 파일은 운영 설정이고,
 # 끄면 매 요청마다 템플릿을 다시 파싱한다. 개발 중 핫리로드가 필요하면
