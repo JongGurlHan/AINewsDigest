@@ -39,7 +39,7 @@
       "name": "curation-openai",
       "status": "completed",
       "started_at": "2026-08-06T15:08:11+0900",
-      "completed_at": "2026-08-06T15:23:28+0900",
+      "completed_at": "2026-08-06T15:24:22+0900",
       "summary": "curation 패키지에 ArticleSelector·ArticleSummarizer 포트와 값 객체 3종(ScoredArticle/ArticleWithContent/SummarizedArticle), 저수준 OpenAiClient, 구현체 2종을 추가. 클라이언트는 생성자에서 HttpClientSettings.withReadTimeout(60s)로 전역 10초를 덮고, response_format에 strict JSON Schema를 실어 구조를 강제하며, 429·5xx·I/O만 지수 백오프로 최대 3회 시도하고 그 외 4xx는 즉시 CurationException으로 포기한다. 선별기는 우선순위·1~5점 기준·recentTitles를 프롬프트에 박고 index로 후보와 재매칭해 점수 내림차순(동점은 입력 순서)으로 돌려주며 범위 밖 점수는 clamp한다. 요약기는 본문을 <<<ARTICLE>>> 구분자로 감싸고(본문 내 구분자는 제거) 신뢰 금지 지시를 시스템 프롬프트에 넣으며, titleKo 200자·summaryKo 600자를 offsetByCodePoints로 코드포인트 경계에서 잘라 warn을 남긴다. WireMock 기반 단위 테스트 38건으로 검증했다(전체 167건 통과)."
     },
     {
