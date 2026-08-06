@@ -77,7 +77,10 @@
     {
       "step": 9,
       "name": "digest-send",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-06T16:10:57+0900",
+      "completed_at": "2026-08-06T16:26:00+0900",
+      "summary": "delivery에 DigestSendService(중첩 record SendSummary)와 DeliveryProperties를 추가했다. 발송 대상은 status가 아니라 sentAt is null로 고르고(PENDING·EMPTY 모두), sentAt이 이미 있으면 아무것도 하지 않는다. 활성 구독자에서 이 다이제스트의 SUCCESS 로그가 있는 사람을 빼 재개하고(totalSubscribers는 스킵 제외 — step 11의 실패율 분모), 결과 타입 4분기를 각각 다르게 다룬다: 403은 즉시 unsubscribe + FAILED \"403\", 429는 retry_after가 max-retry-after(60s) 이하일 때만 rate-limit-retries(2)까지 대기 후 재시도하고 넘으면 대기 없이 FAILED \"429\", retryable 5xx·IO는 retry-backoff 1s를 2배씩 늘려 max-retries(3)회까지, 그 외 4xx는 즉시 실패다. send()에 @Transactional을 붙이지 않고 REQUIRES_NEW로 고정한 TransactionTemplate으로 구독자 한 명 단위(403은 로그+해지 한 묶음)로 커밋해 텔레그램 호출을 트랜잭션 밖에 뒀다. markSent는 succeeded>0 || skipped>0 || 시도 0명일 때만 부르고(ADR-018) 호출 여부를 sentAtRecorded로 올려보낸다(멱등 재호출도 true — \"발송 완료로 기록되었는가\"라는 뜻이라 false면 step 11이 오탐한다). 대기는 주입된 Sleeper로 빼 테스트가 실제로 자지 않는다. FakeMessenger에 방별 대본·고정값·발송 중 관찰 훅을 더하고, @Transactional 없이(커밋 경계를 지우지 않으려고) 전후로 데이터를 지우는 Testcontainers @SpringBootTest 19건으로 검증했다 — 트랜잭션 분리는 순회 도중 REQUIRES_NEW로 조회해 앞선 SUCCESS 로그가 이미 커밋됐는지로 확인한다(전체 252건 통과)."
     },
     {
       "step": 10,

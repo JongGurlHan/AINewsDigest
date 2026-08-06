@@ -100,6 +100,15 @@ ainewsdigest:
       # 연속 실패 이 횟수(30초 폴링 기준 약 10분)에 도달하면 1회만 알린다.
       # 매 사이클 알리면 장애 중에 알림이 쏟아져 그 자체가 2차 장애다.
       alert-threshold: 20
+  delivery:
+    # 재시도 가능한 실패(5xx·타임아웃)에 대한 총 시도 횟수. 1s -> 2s -> 4s로 벌린다.
+    max-retries: 3
+    retry-backoff: 1s
+    # 429를 받은 뒤 같은 구독자에게 다시 시도하는 횟수.
+    rate-limit-retries: 2
+    # retry_after 상한. 넘는 값이 오면 기다리지 않고 그 한 명을 실패로 남긴다 —
+    # 한 명 때문에 나머지 구독자의 아침 발송이 몇 분씩 밀려서는 안 된다.
+    max-retry-after: 60s
   message:
     # 텔레그램 한도는 4,096자(after entities parsing)다. 여유를 두고 4,000으로 잡는다.
     # 꽉 채우면 이모지 하나 늘어난 날 발송 전체가 400으로 실패한다.
