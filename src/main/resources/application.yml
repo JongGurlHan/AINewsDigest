@@ -82,6 +82,14 @@ ainewsdigest:
     # 요약기가 반환 직전에 코드로 자른다. 프롬프트의 길이 제한은 요청이지 보장이 아니다.
     max-title-length: 200     # digest_item.title_ko varchar(200)
     max-summary-length: 600   # PRD 건별 상한
+  telegram:
+    base-url: https://api.telegram.org
+    # 환경변수로만 주입한다. 토큰이 유출되면 봇을 탈취당해 구독자 전원에게 임의의 메시지가 나간다.
+    bot-token: ${TELEGRAM_BOT_TOKEN:}
+    admin-chat-id: ${ADMIN_CHAT_ID:}
+    # 롱폴링 대기 시간. 읽기 타임아웃은 이 값 + 10초로 잡는다 — 읽기 쪽이 더 짧으면
+    # 매 사이클 예외가 나고 구독 기능이 통째로 죽는다 (ADR-015).
+    poll-timeout: 30s
   message:
     # 텔레그램 한도는 4,096자(after entities parsing)다. 여유를 두고 4,000으로 잡는다.
     # 꽉 채우면 이모지 하나 늘어난 날 발송 전체가 400으로 실패한다.

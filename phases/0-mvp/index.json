@@ -61,7 +61,10 @@
     {
       "step": 7,
       "name": "telegram-client",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-06T15:44:06+0900",
+      "completed_at": "2026-08-06T15:56:40+0900",
+      "summary": "delivery 패키지에 Messenger·UpdateSource 포트와 sealed 결과 타입 2종(SendResult 4분기/PollResult 2분기)·TelegramUpdate·TelegramProperties를 추가하고, 둘을 함께 구현하는 TelegramClient를 만들었다. 발송(10s)과 폴링(poll-timeout+10s)의 read timeout이 달라 RestClient를 두 개 만들고(builder.clone()), 요청 대기 시간은 설정된 poll-timeout으로 상한을 건다. onStatus로 기본 에러 핸들러를 끈 뒤 상태 코드로 분기해 200+ok:true→Success, 403→Blocked, 429→parameters.retry_after로 RateLimited, 4xx→Failed(retryable=false), 5xx·I/O→Failed(retryable=true)로 돌려주고 예외를 밖으로 내보내지 않는다. getUpdates는 allowed_updates=[\"message\"]로 요청해 text 없는 업데이트만 걸러내고, 실패는 빈 리스트가 아니라 PollResult.Failure로 구분한다(ADR-016). 토큰이 URL 경로에 박히므로 mask()가 /bot<숫자>:<영숫자>(%3A 인코딩 포함)를 /bot***로 바꾸고 설정 토큰 자체도 한 번 더 지운 뒤 200자로 잘라, 로그·description·reason이 전부 이를 통과한다(예외 객체는 로거에 넘기지 않는다). WireMock 기반 단위 테스트 15건으로 검증했다(전체 209건 통과)."
     },
     {
       "step": 8,
