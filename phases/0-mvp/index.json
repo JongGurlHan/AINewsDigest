@@ -71,7 +71,7 @@
       "name": "subscription-flow",
       "status": "completed",
       "started_at": "2026-08-06T15:55:47+0900",
-      "completed_at": "2026-08-06T16:10:22+0900",
+      "completed_at": "2026-08-06T16:10:56+0900",
       "summary": "subscription에 SubscriptionService(start/stop + SubscribeOutcome 3분기)를, digest에 DigestQueryService와 DigestView/DigestItemView DTO를, delivery에 BotCommandHandler·TelegramUpdatePoller·PollingProperties·Sleeper/ThreadSleeper를 추가했다. start는 조회 후 신규 저장 또는 resubscribe로 멱등하고(재활성화 시 source는 보존), payload는 [A-Za-z0-9_-]만 남겨 50자로 자른 뒤 비면 null로 저장해 varchar(50) 위반이 handle()에 삼켜져 구독이 조용히 실패하는 경로를 막는다. 핸들러는 ALREADY_ACTIVE면 안내 한 통만 보내고 NEW·REACTIVATED일 때만 최근호를 이어 보내며, 보낼 최근호가 없으면 안내 문구를 환영 메시지에 붙여 한 통으로 끝낸다. 최근호 조회는 DigestRepository 대신 DigestQueryService(@Transactional(readOnly=true) 클래스 레벨)에 두고 sentAt is not null and status <> EMPTY를 digestDate 내림차순 limit 1로 뽑아 step 10과 공유한다. 폴러는 @ConditionalOnProperty(기본 켬, 테스트 설정에서 끔) + SmartLifecycle로 데몬 스레드 하나를 돌리고, Updates면 offset=maxUpdateId+1로 전진시키며 실패 카운터를 리셋하고(빈 Updates에는 쉬지 않는다), Failure면 offset을 그대로 둔 채 min(5s×2^(n-1), 60s)만큼 주입된 Sleeper로 쉬며 임계값 도달 시 ERROR를 1회만 남긴다(step 11이 알림을 붙인다). 업데이트 처리 예외와 사이클 예외를 모두 잡아 루프를 유지하고 종료 시 인터럽트로 깨운다. Testcontainers @SpringBootTest 16건과 순수 단위 8건, 총 24건을 추가했다(전체 233건 통과)."
     },
     {
