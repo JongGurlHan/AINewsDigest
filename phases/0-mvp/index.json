@@ -95,7 +95,7 @@
       "name": "scheduler-ops",
       "status": "completed",
       "started_at": "2026-08-06T16:44:21+0900",
-      "completed_at": "2026-08-06T17:02:38+0900",
+      "completed_at": "2026-08-06T16:58:50+0900",
       "summary": "global에 DigestScheduler(07:00 생성 / 07:15 재시도 / 07:30 발송, 셋 다 zone=\"Asia/Seoul\")·AdminNotifier·HealthPinger·OpsProperties·SchedulingConfig(@EnableScheduling + Clock 빈)·ManualRunner를 추가하고, step 8이 남겨 둔 폴러의 알림 자리를 AdminNotifier로 연결했다. 날짜는 전부 clock.withZone(Asia/Seoul)을 거쳐 구해 서버 기본 타임존(UTC)이 새어들지 않게 하고, cron·zone은 어노테이션 리터럴로만 두어 죽은 설정 키를 만들지 않았다. 07:15 복구 판정은 GenerationResult로 할 수 없어(조용한 날 새로 만든 EMPTY와 이미 있어서 돌아온 EMPTY가 둘 다 (EMPTY,0,0,0)이다) 07:00 실패 플래그 하나로 하며, 재시도에 별도 멱등성 검사를 두지 않았다(generate()가 이미 막는다). 알림 등급은 candidateCount==0 && failedSourceCount>0이면 failure(수집 전면 실패), 둘 다 0이면 무알림(진짜 조용한 날), 후보가 있는데 실패 소스가 있으면 warning으로 가르고, 발송은 digestFound==false·sentAtRecorded==false를 각각 failure로 따로 알린 뒤 그 두 경로에서는 pingSuccess()를 부르지 않는다 — 실패율 30%(경계 포함) 경고는 시도분 분모로 계산하고 핑은 그대로 나간다. AdminNotifier는 admin-chat-id가 비었거나 숫자가 아니면 조용히 넘어가고 Messenger 예외·실패 결과를 전부 삼키며, 이스케이프와 3,500자 절단을 한 번에 처리해(따로 하면 &가 5배로 늘거나 &amp;가 반으로 쪼개진다) 엔티티·서로게이트 페어가 갈라지지 않는다. HealthPinger는 read timeout 5s에 onStatus로 기본 핸들러를 끄고 URI.create로 넘겨 상태 코드·I/O·URL 오타까지 전부 로그로만 남긴다. 수동 트리거는 HTTP가 아니라 ApplicationRunner의 --ainewsdigest.run=generate|send이며 서비스가 아닌 스케줄러를 거쳐 불러 날짜·알림·핑 규칙이 스케줄 실행과 갈라지지 않게 했다. 스케줄러는 @ConditionalOnProperty(ainewsdigest.scheduler.enabled)로 테스트 설정에서 꺼진다. 순수 단위 테스트 33건을 추가했다(전체 302건 통과)."
     },
     {
