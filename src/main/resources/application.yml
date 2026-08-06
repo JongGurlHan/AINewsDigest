@@ -82,6 +82,11 @@ ainewsdigest:
     # 요약기가 반환 직전에 코드로 자른다. 프롬프트의 길이 제한은 요청이지 보장이 아니다.
     max-title-length: 200     # digest_item.title_ko varchar(200)
     max-summary-length: 600   # PRD 건별 상한
+  message:
+    # 텔레그램 한도는 4,096자(after entities parsing)다. 여유를 두고 4,000으로 잡는다.
+    # 꽉 채우면 이모지 하나 늘어난 날 발송 전체가 400으로 실패한다.
+    max-visible-length: 4000
+    empty-text: "오늘의 AI 뉴스는 없습니다."
 
 # spring.thymeleaf.cache 는 두지 않는다. 이 파일은 운영 설정이고,
 # 끄면 매 요청마다 템플릿을 다시 파싱한다. 개발 중 핫리로드가 필요하면
