@@ -176,7 +176,7 @@ class TelegramUpdatePollerTest {
 	private TelegramUpdatePoller poller(int alertThreshold) {
 		return new TelegramUpdatePoller(this.source, this.handler,
 				new PollingProperties(true, BACKOFF, MAX_BACKOFF, alertThreshold),
-				new TelegramProperties(null, null, null, null), this.sleeper);
+				new TelegramProperties(null, null, null, null, null), this.sleeper);
 	}
 
 	private static PollResult updates(long... updateIds) {

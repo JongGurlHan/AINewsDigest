@@ -87,6 +87,8 @@ ainewsdigest:
     # 환경변수로만 주입한다. 토큰이 유출되면 봇을 탈취당해 구독자 전원에게 임의의 메시지가 나간다.
     bot-token: ${TELEGRAM_BOT_TOKEN:}
     admin-chat-id: ${ADMIN_CHAT_ID:}
+    # 랜딩의 구독 버튼이 걸리는 딥링크 대상 (ADR-003). 토큰과 달리 공개값이다.
+    bot-username: ${TELEGRAM_BOT_USERNAME:ainewsdigest_bot}
     # 롱폴링 대기 시간. 읽기 타임아웃은 이 값 + 10초로 잡는다 — 읽기 쪽이 더 짧으면
     # 매 사이클 예외가 나고 구독 기능이 통째로 죽는다 (ADR-015).
     poll-timeout: 30s

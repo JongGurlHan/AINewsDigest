@@ -85,7 +85,10 @@
     {
       "step": 10,
       "name": "web-archive",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-06T16:25:10+0900",
+      "completed_at": "2026-08-06T16:43:27+0900",
+      "summary": "digest에 DigestController(랜딩/아카이브 목록/날짜 상세)와 Thymeleaf 템플릿 4종(fragments/layout, digest/landing·archive·detail), static/css/main.css를 추가하고 DigestQueryService에 화면용 조회 3종을 붙였다. 노출 기준은 status가 아니라 sentAt is not null 하나여서 발송된 EMPTY도 목록에 남고 DigestView.isEmpty()로 \"뉴스 없음\"이 표시된다(ADR-014). 페이징과 컬렉션 fetch join을 함께 쓰면 Hibernate가 전 행을 읽어 메모리에서 자르므로, id 페이지(count+ids)를 확정한 뒤 left join fetch 한 번으로 항목을 채워 건수와 무관하게 쿼리 3회로 끝낸다. 정렬은 요청 파라미터가 아니라 서비스가 digestDate desc로 고정하고, 페이지 크기 상한은 @PageableDefault(20) + spring.data.web.pageable.max-page-size(50)이 건다 — 테스트 클래스패스의 application.yml이 운영 것을 통째로 가리므로 같은 값을 테스트 설정에도 뒀다. displayDate(2026년 8월 5일 (수))는 템플릿이 아니라 DigestView의 파생 접근자가 만들고, 항목 순서는 DTO 생성자가 position 오름차순으로 다시 세워 @OrderBy가 닿지 않는 경로도 화면 순서가 흔들리지 않는다. 출력은 전부 th:text이며(LLM 생성 문자열이 화면 내용의 전부다) message_text는 렌더링하지 않는다. th:href의 sourceUrl이 안전한 근거는 step 2의 CandidateArticle.of가 진입 시점에 http/https만 통과시키기 때문이고 그 의존을 템플릿 주석으로 남겼다. 구독 딥링크는 TelegramProperties.botUsername(기본 ainewsdigest_bot)에서 조립한다. CSS는 UI_GUIDE 팔레트를 커스텀 프로퍼티로만 쓰고 색 전환 0.15s 외 애니메이션·그라데이션·블러·글로우를 두지 않았다. @WebMvcTest 10건과 Testcontainers @SpringBootTest 7건을 추가했다(전체 269건 통과)."
     },
     {
       "step": 11,

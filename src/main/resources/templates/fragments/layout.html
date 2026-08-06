@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:fragment="head(pageTitle)">
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title th:text="${pageTitle}">AI News Digest</title>
+	<!--/* 웹폰트를 로드하지 않는다. 로딩 지연과 CLS를 만들 이유가 없다 (UI_GUIDE). */-->
+	<link rel="stylesheet" th:href="@{/css/main.css}">
+</head>
+<body>
+
+<header th:fragment="header" class="site-header">
+	<a class="site-header__title" th:href="@{/}">AI News Digest</a>
+	<nav class="site-nav">
+		<a th:href="@{/archive}">아카이브</a>
+		<a th:href="${subscribeUrl}" target="_blank" rel="noopener noreferrer">구독</a>
+	</nav>
+</header>
+
+<!--/*
+	다이제스트 항목 목록. 랜딩과 상세가 같은 조각을 쓴다 — 두 화면이 같은 내용을 다르게 보여줄 이유가 없다.
+
+	출력은 전부 th:text다. 제목·요약은 LLM이 만든 문자열이라 무엇이 들어올지 보장할 수 없고,
+	th:text의 이스케이프가 유일한 방어선이다. th:utext로 바꾸지 말 것.
+*/-->
+<ol th:fragment="items(items)" class="digest-items">
+	<li class="digest-item" th:each="item : ${items}">
+		<h3 class="digest-item__title" th:text="${item.titleKo}">한글 제목</h3>
+		<p class="digest-item__summary" th:text="${item.summaryKo}">한글 요약</p>
+		<p class="digest-item__source">
+			<!--/*
+				th:href는 th:text와 달리 javascript: 스킴을 막지 않는다. 이스케이프는 여기서 방어가
+				아니다. 이 링크가 안전한 근거는 화면이 아니라 진입 지점에 있다 — sourceUrl은 HN에서 온
+				값이고, step 2의 CandidateArticle.of가 후보를 만들 때 http/https만 통과시킨다.
+				그 검증을 걷어내면 이 자리가 클릭 가능한 XSS가 된다.
+			*/-->
+			<a th:href="${item.sourceUrl}" th:text="${item.sourceDomain}"
+			   target="_blank" rel="noopener noreferrer">example.com</a>
+		</p>
+	</li>
+</ol>
+
+<footer th:fragment="footer" class="site-footer">
+	<p>개발자에게 유용한 AI 소식을 매일 오전 7시 30분(KST)에 발송합니다.</p>
+</footer>
+
+</body>
+</html>

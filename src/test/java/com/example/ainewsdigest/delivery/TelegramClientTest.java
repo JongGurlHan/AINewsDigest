@@ -273,12 +273,14 @@ class TelegramClientTest {
 
 	@Test
 	void defaultsKeepBotTokenEmptyAndPollTimeoutAtThirtySeconds() {
-		TelegramProperties defaults = new TelegramProperties(null, null, null, null);
+		TelegramProperties defaults = new TelegramProperties(null, null, null, null, null);
 
 		assertEquals("https://api.telegram.org", defaults.baseUrl());
 		// 토큰을 코드에 두지 않는다. 비어 있어도 기동은 되어야 한다.
 		assertEquals("", defaults.botToken());
 		assertEquals(Duration.ofSeconds(30), defaults.pollTimeout());
+		// 토큰과 달리 공개값이다. 비면 랜딩의 구독 버튼이 죽은 링크가 되므로 기본값을 둔다.
+		assertEquals("ainewsdigest_bot", defaults.botUsername());
 	}
 
 	private static ListAppender<ILoggingEvent> attachAppender() {
@@ -320,7 +322,7 @@ class TelegramClientTest {
 	private static TelegramClient client(Supplier<String> baseUrl, Duration pollTimeout) {
 		return new TelegramClient(RestClient.builder(), ClientHttpRequestFactoryBuilder.detect(),
 				HttpClientSettings.defaults(),
-				new TelegramProperties(baseUrl.get(), TOKEN, "9999", pollTimeout));
+				new TelegramProperties(baseUrl.get(), TOKEN, "9999", pollTimeout, null));
 	}
 
 	private static int freePort() {

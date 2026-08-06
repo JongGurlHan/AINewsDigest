@@ -1,8 +1,18 @@
 package com.example.ainewsdigest.digest;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -20,6 +30,12 @@ import java.util.Optional;
 @Service
 @Transactional(readOnly = true)
 public class DigestQueryService {
+
+	/**
+	 * 아카이브는 항상 최신순이다. 요청 파라미터의 정렬을 그대로 쓰지 않는다 — {@code ?sort=id,asc} 하나로
+	 * 목록 순서가 뒤집히면 "매일 쌓이고 있다"는 화면의 유일한 메시지가 깨진다.
+	 */
+	private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "digestDate");
 
 	private final DigestRepository digests;
 
@@ -40,5 +56,44 @@ public class DigestQueryService {
 	 */
 	public Optional<DigestView> findLatestSentWithContent() {
 		return this.digests.findLatestSentWithContent(DigestStatus.EMPTY).map(DigestView::from);
+	}
+
+	/**
+	 * 랜딩에 바로 노출할 최근 발송분 (최신순). 설명보다 실물을 먼저 보여준다 (ADR-004).
+	 *
+	 * <p>{@link #findLatestSentWithContent()}와 달리 EMPTY도 포함한다. 랜딩은 "이 서비스가 매일 돌고
+	 * 있다"를 보여주는 자리이고, 뉴스가 없던 날도 그날 돌았다는 기록이다.
+	 */
+	public List<DigestView> findRecentSent(int limit) {
+		return toViews(this.digests.findSentIds(PageRequest.of(0, limit, NEWEST_FIRST)).getContent());
+	}
+
+	/** 아카이브 목록. 발송된 다이제스트만, 최신순으로, 항목까지 함께 담아 돌려준다. */
+	public Page<DigestView> findSentPage(Pageable pageable) {
+		Pageable newestFirst = PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST);
+		Page<Long> ids = this.digests.findSentIds(newestFirst);
+		return new PageImpl<>(toViews(ids.getContent()), newestFirst, ids.getTotalElements());
+	}
+
+	/** 아카이브 상세. 발송되지 않은 날짜는 없는 것으로 취급한다 — 컨트롤러가 404로 바꾼다. */
+	public Optional<DigestView> findSentByDate(LocalDate date) {
+		return this.digests.findSentByDateWithItems(date).stream().findFirst().map(DigestView::from);
+	}
+
+	/**
+	 * id 목록을 항목까지 채운 뷰로 바꾼다. <b>쿼리는 id 개수와 무관하게 1회</b>다 — 목록 화면에서
+	 * 20건을 그리며 항목을 건건이 조회하면 그것이 N+1이다.
+	 *
+	 * <p>fetch join 결과는 순서가 보장되지 않으므로 페이지가 확정한 id 순서로 다시 세운다.
+	 */
+	private List<DigestView> toViews(List<Long> ids) {
+		if (ids.isEmpty()) {
+			return List.of();
+		}
+		Map<Long, Digest> byId = new HashMap<>();
+		for (Digest digest : this.digests.findAllWithItemsByIds(ids)) {
+			byId.putIfAbsent(digest.getId(), digest);
+		}
+		return ids.stream().map(byId::get).filter(Objects::nonNull).map(DigestView::from).toList();
 	}
 }

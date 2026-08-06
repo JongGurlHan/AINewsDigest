@@ -16,18 +16,25 @@ import java.time.Duration;
  *
  * @param pollTimeout 롱폴링 대기 시간의 <b>상한</b>. 읽기 타임아웃은 이 값 + 10초로 잡는다 — 읽기 쪽이
  *                    더 짧으면 매 사이클 예외가 나고 구독 기능이 통째로 죽는다 (ADR-015)
+ * @param botUsername 구독 딥링크({@code https://t.me/<bot>?start=web})에 박히는 봇 이름 (ADR-003).
+ *                    토큰과 달리 공개값이라 기본값을 둔다 — 비어 있으면 랜딩의 구독 버튼이 죽은 링크가 되고,
+ *                    <b>구독 경로가 통째로 막혀도 화면은 정상으로 보인다</b>
  */
 @ConfigurationProperties("ainewsdigest.telegram")
-public record TelegramProperties(String baseUrl, String botToken, String adminChatId, Duration pollTimeout) {
+public record TelegramProperties(String baseUrl, String botToken, String adminChatId, Duration pollTimeout,
+		String botUsername) {
 
 	private static final String DEFAULT_BASE_URL = "https://api.telegram.org";
 
 	private static final Duration DEFAULT_POLL_TIMEOUT = Duration.ofSeconds(30);
+
+	private static final String DEFAULT_BOT_USERNAME = "ainewsdigest_bot";
 
 	public TelegramProperties {
 		baseUrl = (baseUrl == null || baseUrl.isBlank()) ? DEFAULT_BASE_URL : baseUrl;
 		botToken = (botToken == null) ? "" : botToken;
 		adminChatId = (adminChatId == null) ? "" : adminChatId;
 		pollTimeout = (pollTimeout == null || pollTimeout.isNegative()) ? DEFAULT_POLL_TIMEOUT : pollTimeout;
+		botUsername = (botUsername == null || botUsername.isBlank()) ? DEFAULT_BOT_USERNAME : botUsername;
 	}
 }
