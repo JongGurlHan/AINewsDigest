@@ -53,7 +53,10 @@
     {
       "step": 6,
       "name": "digest-generation",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-06T15:32:06+0900",
+      "completed_at": "2026-08-06T15:43:11+0900",
+      "summary": "digest 패키지에 DigestGenerationService와 중첩 record GenerationResult(status/itemCount/candidateCount/failedSourceCount)를 추가. 새 어댑터 없이 기존 포트 4종을 조립해 멱등성 확인 → 24시간 수집(FetchResult.failed 카운트) → normalizedUrl 중복 제거 + 최근 7일 발송분 제외 → 선별(minScore 3 이상 상위 8건) → 선별분만 크롤링 → 상위 5건 요약 → 조립 → 저장을 잇는다. generate()에 @Transactional을 붙이지 않고 리포지토리 호출 단위(조회는 readOnly, save 한 번은 cascade로 원자적)로 DB 접근을 쪼개 외부 HTTP 호출을 트랜잭션 밖에 뒀다. 저장분은 summarized가 아니라 DigestMessage.includedArticles()로 만들어 건수 축소·요약 절단이 아카이브에 그대로 반영되고, 저장 직전 title_ko 200자·source_domain 100자를 offsetByCodePoints로 한 번 더 자른다. 채택 0건은 조립기가 만든 \"뉴스 없음\" 메시지로 EMPTY 저장(sentAt은 비워 발송 대상 유지). 페이크 포트 4종을 support/에 두고 Testcontainers @SpringBootTest 10건으로 검증했다(전체 194건 통과)."
     },
     {
       "step": 7,
