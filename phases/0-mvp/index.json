@@ -47,7 +47,7 @@
       "name": "message-builder",
       "status": "completed",
       "started_at": "2026-08-06T15:24:23+0900",
-      "completed_at": "2026-08-06T15:31:06+0900",
+      "completed_at": "2026-08-06T15:32:06+0900",
       "summary": "digest 패키지에 DigestMessageBuilder와 DigestMessage(html/visibleLength/includedCount/includedArticles)·MessageProperties를 추가. 조립기가 HTML과 \"보이는 길이\"를 함께 쌓아 태그·href URL은 0자, &amp;·&lt;·&gt;는 1자로 세고(별도 파서를 두지 않아 조립기와 어긋날 여지를 없앰), 이스케이프는 한 글자씩 훑어 & < > 셋만 치환한다(replace 체이닝의 이중 이스케이프 차단). 4,000자를 넘으면 최하위 항목부터 빼고 번호를 다시 매기며, 1건까지 줄여도 넘으면 이스케이프 전 원문 summaryKo를 offsetByCodePoints로 잘라 재조립·재측정을 반복한다. includedArticles에는 잘린 요약이 담겨 step 6 저장분이 실제 발송 내용과 일치한다. href의 &<>도 이스케이프하고 큰따옴표는 %22로 인코딩한다. 순수 단위 테스트 17건으로 검증했다(전체 184건 통과)."
     },
     {
