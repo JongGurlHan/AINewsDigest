@@ -10,3 +10,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+
+ainewsdigest:
+  telegram:
+    polling:
+      ## 테스트에서 폴러가 뜨면 백그라운드 스레드가 실제 텔레그램 API를 때린다.
+      ## @SpringBootTest 컨텍스트마다 하나씩 붙어 테스트를 불안정하게 만든다. 반드시 끈다.
+      enabled: false

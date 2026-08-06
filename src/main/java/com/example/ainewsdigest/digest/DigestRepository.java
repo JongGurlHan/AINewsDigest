@@ -34,4 +34,19 @@ public interface DigestRepository extends JpaRepository<Digest, Long> {
 			where d.digestDate >= :since and d.sentAt is not null
 			""")
 	List<String> findTitlesSince(@Param("since") LocalDate since);
+
+	/**
+	 * 가장 최근에 발송됐고 내용이 있는 다이제스트. 봇의 {@code /start} 응답과 웹 랜딩이 함께 쓴다.
+	 *
+	 * <p><b>호출은 {@code DigestQueryService}를 거친다.</b> 규칙(발송 판정 축 + EMPTY 제외)이 두 도메인에
+	 * 각자 복제되면 봇과 웹이 서로 다른 것을 보여주게 된다 (ARCHITECTURE "도메인 간 접근").
+	 */
+	@Query("""
+			select d
+			from Digest d
+			where d.sentAt is not null and d.status <> :excluded
+			order by d.digestDate desc
+			limit 1
+			""")
+	Optional<Digest> findLatestSentWithContent(@Param("excluded") DigestStatus excluded);
 }

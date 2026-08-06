@@ -90,6 +90,16 @@ ainewsdigest:
     # 롱폴링 대기 시간. 읽기 타임아웃은 이 값 + 10초로 잡는다 — 읽기 쪽이 더 짧으면
     # 매 사이클 예외가 나고 구독 기능이 통째로 죽는다 (ADR-015).
     poll-timeout: 30s
+    polling:
+      # 폴러 기동 여부. 테스트 설정에서는 false다 — 백그라운드 스레드가 실제 API를 때리면 안 된다.
+      enabled: true
+      # PollResult.Failure일 때만 적용된다 (지수 백오프의 시작값).
+      # 빈 Updates는 롱폴링의 정상 응답이므로 쉬지 않는다.
+      failure-backoff: 5s
+      max-backoff: 60s
+      # 연속 실패 이 횟수(30초 폴링 기준 약 10분)에 도달하면 1회만 알린다.
+      # 매 사이클 알리면 장애 중에 알림이 쏟아져 그 자체가 2차 장애다.
+      alert-threshold: 20
   message:
     # 텔레그램 한도는 4,096자(after entities parsing)다. 여유를 두고 4,000으로 잡는다.
     # 꽉 채우면 이모지 하나 늘어난 날 발송 전체가 400으로 실패한다.
