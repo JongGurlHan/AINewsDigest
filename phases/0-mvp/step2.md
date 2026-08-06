@@ -29,9 +29,15 @@ public record CandidateArticle(
      * 이유: 어댑터 3개가 각자 정규화하면 하나만 빠뜨려도 조용히 깨진다. 그것도 나쁜 쪽으로 —
      * normalizedUrl이 빈 문자열이면 서로 다른 기사가 전부 같은 값이 되어 중복 제거에 몰살당하고,
      * 매일 아침 EMPTY 다이제스트가 나간다. 원인을 찾기 매우 어렵다.
+     *
+     * 아래 중 하나라도 걸리면 Optional.empty()를 돌려준다 (후보 탈락):
+     *   - normalizer.isHttpUrl(url)이 false        (스킴 검증, step 1)
+     *   - title이 비어 있음
+     *   - sourceDomain이 100자를 넘음               (digest_item.source_domain varchar(100))
      */
-    public static CandidateArticle of(String title, String url, String sourceName,
-                                      int points, Instant publishedAt, UrlNormalizer normalizer) { ... }
+    public static Optional<CandidateArticle> of(String title, String url, String sourceName,
+                                                int points, Instant publishedAt,
+                                                UrlNormalizer normalizer) { ... }
 }
 
 // collect/FetchResult.java  (record)
@@ -52,6 +58,15 @@ public interface NewsSource {
 
 **실패를 빈 리스트로 표현하지 마라 (ADR-016).** 소스 3개가 전부 죽어도 후보 0건이 되는데, 빈 리스트만 돌려주면 step 6이 이걸 "오늘은 뉴스가 없는 날"로 판정해 EMPTY를 정상 발송하고 헬스체크 핑까지 보낸다. 관리자도 외부 감시도 장애를 감지하지 못한다. `failed` 플래그가 그 구분을 만든다.
 
+**`of`가 후보를 탈락시키는 것은 실패가 아니다.** 값이 이상해서 버린 것이므로 `failed` 플래그를 세우지 않는다. `failed`는 소스와 통신하지 못했다는 뜻이다.
+
+### 왜 여기서 검증하는가
+
+수집기는 **외부에서 들어온 값이 파이프라인에 처음 닿는 지점**이다. 여기서 거르지 않으면 나머지 전 구간이 그 값을 신뢰한다.
+
+- **스킴**: HN에 `javascript:` URL을 올릴 수 있고, 그 값이 step 10에서 `<a th:href>`로 렌더링된다. `th:href`는 `th:text`와 달리 스킴을 막지 않는다
+- **도메인 길이**: `source_domain`은 `varchar(100)`인데 FQDN은 최대 253자다. 넘치면 **step 6의 마지막 저장에서** `DataIntegrityViolationException`이 나고, LLM 호출 비용을 전부 지불한 뒤 그날 다이제스트가 통째로 날아간다. 값 하나 때문에 하루치를 잃는다
+
 ### 구현체 3종 (전부 `collect` 패키지)
 
 **1. `HackerNewsClient implements NewsSource`**
@@ -70,12 +85,14 @@ GET {baseUrl}/search_by_date
 - 설정된 키워드 목록마다 한 번씩 호출하고 결과를 합친 뒤 `normalizedUrl` 기준으로 중복을 제거한다
 - 응답 JSON의 `hits[]`에서 `title`, `url`, `points`, `created_at`을 읽는다
 - **`url`이 null인 hit은 버린다.** 이유: Ask HN 같은 자체 글은 외부 원문이 없어 본문 크롤링(step 3)이 불가능하다
+- `CandidateArticle.of`가 `Optional.empty()`를 돌려준 hit도 버린다 (스킴·도메인 길이 검증 탈락)
 - `sourceName`은 `"Hacker News"`, `sourceDomain`은 원문 URL에서 뽑는다(`news.ycombinator.com`이 아니다)
 
 **2. `RssFeedClient implements NewsSource`**
 
 rome의 `SyndFeedInput`으로 RSS 2.0과 Atom을 모두 파싱한다. 설정된 피드 목록을 순회한다.
 
+- **`SyndFeedInput`의 `allowDoctypes` 기본값(false)을 그대로 둔다.** 이게 XXE 방어다 — true로 바꾸면 피드가 DTD 외부 엔티티를 선언해 서버의 로컬 파일을 읽어낼 수 있다. 파싱 오류를 만나도 이 값을 건드려 해결하지 마라
 - 피드 하나가 실패해도 나머지는 계속 처리한다. 단 **`FetchResult.failed = true`로 표시한다** (부분 실패도 실패다)
 - `publishedDate`가 없으면 `updatedDate`를 쓰고, 둘 다 없으면 그 항목을 버린다
 - `since` 이전 항목은 제외한다
@@ -174,6 +191,9 @@ Boot 4의 타입 이름은 `org.springframework.boot.http.client.HttpClientSetti
 10. **정상 응답이지만 결과가 0건이면 `failed == false`다** (성공한 빈 결과와 실패를 구분한다)
 11. `RssFeedClient`에서 피드 2개 중 1개만 500이면 다른 피드 결과가 담기고 `failed == true`다
 12. **어댑터 3종 모두 `normalizedUrl`·`sourceDomain`이 빈 문자열이 아니다** (`CandidateArticle.of` 사용 여부 검증)
+13. **`url`이 `javascript:alert(1)`인 hit이 후보에 들어가지 않는다.** 이 픽스처를 `hn-search.json`에 섞어 두고, 정상 hit은 그대로 수집되는지 함께 확인한다
+14. **호스트가 120자인 URL의 hit이 후보에서 탈락한다** (`source_domain varchar(100)` 초과)
+15. 13·14로 후보가 줄어도 `FetchResult.failed == false`다 (값 검증 탈락은 소스 장애가 아니다)
 
 ## Acceptance Criteria
 
@@ -202,5 +222,8 @@ Boot 4의 타입 이름은 `org.springframework.boot.http.client.HttpClientSetti
 - 소스별 URL을 코드에 하드코딩하지 마라. 이유: 설정으로 빼야 소스 추가·교체가 재빌드 없이 가능하다
 - 실패를 빈 리스트로 표현하지 마라. 이유: ADR-016. 수집 전면 장애가 "뉴스 없는 날"로 위장되어 헬스체크까지 초록불이 된다
 - `CandidateArticle`을 생성자로 직접 만들지 마라. 이유: 정규화 필드를 빠뜨리면 중복 제거가 조용히 무너진다. `CandidateArticle.of(...)`만 쓴다
+- `of`가 돌려준 `Optional`을 `orElseThrow`나 `get()`으로 풀지 마라. 이유: 탈락은 정상 흐름이다. 예외로 만들면 이상한 hit 하나가 그 소스 전체를 실패로 만든다
+- `SyndFeedInput.setAllowDoctypes(true)`를 호출하지 마라. 이유: 기본값 false가 XXE 방어다. 켜는 순간 피드 하나로 서버 로컬 파일이 읽힌다
+- 스킴 검증을 step 10(화면)으로 미루지 마라. 이유: 검증되지 않은 URL이 DB에 저장되면 화면·텔레그램 메시지 등 사용처마다 각자 막아야 하고, 한 곳만 빠뜨리면 뚫린다. 진입점에서 한 번 거른다
 - `spring-boot-starter-restclient` 의존성을 제거하지 마라. 이유: Boot 4에서 `RestClient.Builder`를 제공하는 유일한 스타터다. 빼면 세 어댑터가 전부 기동 실패한다
 - 기존 테스트를 깨뜨리지 마라

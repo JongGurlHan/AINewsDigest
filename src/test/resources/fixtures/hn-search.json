@@ -1,0 +1,60 @@
+{
+  "hits": [
+    {
+      "title": "Claude Code 2.1 ships subagents",
+      "url": "https://www.anthropic.com/news/claude-code-2-1?utm_source=hn",
+      "author": "dhouston",
+      "points": 412,
+      "num_comments": 187,
+      "created_at": "2026-08-05T22:10:00.000Z",
+      "created_at_i": 1786745400,
+      "objectID": "44100001"
+    },
+    {
+      "title": "Ask HN: How do you review AI-generated code?",
+      "url": null,
+      "author": "pg",
+      "points": 190,
+      "num_comments": 233,
+      "created_at": "2026-08-05T20:00:00.000Z",
+      "created_at_i": 1786737600,
+      "objectID": "44100002"
+    },
+    {
+      "title": "Claim your free AI credits",
+      "url": "javascript:alert(1)",
+      "author": "spammer",
+      "points": 55,
+      "num_comments": 3,
+      "created_at": "2026-08-05T19:30:00.000Z",
+      "created_at_i": 1786735800,
+      "objectID": "44100003"
+    },
+    {
+      "title": "A post on a host with an absurdly long name",
+      "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com/post",
+      "author": "someone",
+      "points": 61,
+      "num_comments": 12,
+      "created_at": "2026-08-05T19:00:00.000Z",
+      "created_at_i": 1786734000,
+      "objectID": "44100004"
+    },
+    {
+      "title": "Cursor 2.0 changelog",
+      "url": "https://cursor.com/changelog/2-0",
+      "author": "sualeh",
+      "points": 233,
+      "num_comments": 96,
+      "created_at": "2026-08-05T18:45:00.000Z",
+      "created_at_i": 1786733100,
+      "objectID": "44100005"
+    }
+  ],
+  "nbHits": 5,
+  "page": 0,
+  "nbPages": 1,
+  "hitsPerPage": 40,
+  "processingTimeMS": 4,
+  "query": "claude code"
+}

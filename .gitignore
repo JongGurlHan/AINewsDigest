@@ -13,6 +13,10 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# 시크릿 — OPENAI_API_KEY, TELEGRAM_BOT_TOKEN 등이 들어간다. 커밋되면 즉시 유출이다.
+.env
+!.env.example
+
 # IDE
 .idea/
 *.iml

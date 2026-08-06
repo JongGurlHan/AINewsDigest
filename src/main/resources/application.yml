@@ -12,5 +12,121 @@ spring:
       ddl-auto: validate
   flyway:
     locations: classpath:db/migration
-  thymeleaf:
-    cache: false
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        # 상한을 두지 않으면 Boot 기본값 2000이 적용되어 ?size=2000 한 번에
+        # 다이제스트 2,000건과 그 항목 전량을 조회한다.
+        max-page-size: 50
+  task:
+    scheduling:
+      # 1을 유지한다. 생성(07:00)이 07:30을 넘겨도 발송은 동시 실행이 아니라
+      # 지연 실행된다 — 이게 옳다. 늘리면 생성이 끝나기 전에 발송이 시작돼
+      # "다이제스트 없음" 오탐이 난다.
+      pool:
+        size: 1
+  http:
+    client:
+      # 전역 기본값일 뿐이다. 어댑터는 각자 생성자에서 read timeout을 지정한다 —
+      # 롱폴링 40s / LLM 60s / 수집 10s라 전역값 하나로 맞출 수 없다 (ADR-015).
+      # 주의: Boot 4.0에서 이 prefix는 spring.http.clients.* 로 이름이 바뀌며 deprecated 됐다.
+      connect-timeout: 5s
+      read-timeout: 10s
+
+ainewsdigest:
+  collect:
+    # 소스 URL을 코드에 하드코딩하지 않는다. 설정으로 빼야 소스 추가·교체가 재빌드 없이 가능하다.
+    hacker-news:
+      base-url: https://hn.algolia.com/api/v1
+      min-points: 30
+      hits-per-page: 40
+      keywords:
+        - claude code
+        - codex
+        - cursor
+        - LLM
+        - AI coding
+    rss:
+      feeds:
+        - name: OpenAI
+          url: https://openai.com/news/rss.xml
+        - name: Simon Willison
+          url: https://simonwillison.net/atom/everything/
+    changelog:
+      url: https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md
+    extractor:
+      # 크롤링은 파이프라인에서 가장 느리고 가장 잘 깨지는 구간이다. 오래 붙잡지 않는다.
+      timeout: 5s
+      max-content-length: 3000
+      # 이보다 짧으면 쿠키 배너·페이월 안내문만 긁힌 것이다. 그 텍스트로 요약하면 엉뚱한 내용이 나간다.
+      min-content-length: 200
+      max-redirects: 3
+      # 신원을 밝힌다. 봇 차단 회피용 UA 로테이션은 하지 않는다 — 차단된 사이트는 그냥 탈락시킨다.
+      user-agent: "AINewsDigest/1.0 (+https://github.com/JongGurlHan)"
+  curation:
+    openai:
+      base-url: https://api.openai.com/v1
+      # 환경변수로만 주입한다. 실제 키를 여기 적어 커밋하면 그 순간 유출이다.
+      api-key: ${OPENAI_API_KEY:}
+      model: gpt-5-mini
+      # 전역값(10s)이 아니라 이 값이 적용된다. 요약 호출은 수십 초가 걸린다 (ADR-015).
+      timeout: 60s
+      # 재시도를 포함한 최대 시도 횟수. 429·5xx·타임아웃만 재시도하고 그 외 4xx는 즉시 포기한다.
+      max-retries: 3
+      retry-backoff: 1s
+    # 이 셋은 파이프라인(step 6)이 읽는다. 선별기·요약기는 건수를 자르지 않는다.
+    min-score: 3          # 이 점수 미만은 채택하지 않는다 (ADR-013)
+    select-count: 8       # 크롤링 실패를 감안해 필요 건수보다 넉넉히 고른다
+    max-items: 5
+    # 요약기가 반환 직전에 코드로 자른다. 프롬프트의 길이 제한은 요청이지 보장이 아니다.
+    max-title-length: 200     # digest_item.title_ko varchar(200)
+    max-summary-length: 600   # PRD 건별 상한
+  telegram:
+    base-url: https://api.telegram.org
+    # 환경변수로만 주입한다. 토큰이 유출되면 봇을 탈취당해 구독자 전원에게 임의의 메시지가 나간다.
+    bot-token: ${TELEGRAM_BOT_TOKEN:}
+    admin-chat-id: ${ADMIN_CHAT_ID:}
+    # 랜딩의 구독 버튼이 걸리는 딥링크 대상 (ADR-003). 토큰과 달리 공개값이다.
+    bot-username: ${TELEGRAM_BOT_USERNAME:ainewsdigest_bot}
+    # 롱폴링 대기 시간. 읽기 타임아웃은 이 값 + 10초로 잡는다 — 읽기 쪽이 더 짧으면
+    # 매 사이클 예외가 나고 구독 기능이 통째로 죽는다 (ADR-015).
+    poll-timeout: 30s
+    polling:
+      # 폴러 기동 여부. 테스트 설정에서는 false다 — 백그라운드 스레드가 실제 API를 때리면 안 된다.
+      enabled: true
+      # PollResult.Failure일 때만 적용된다 (지수 백오프의 시작값).
+      # 빈 Updates는 롱폴링의 정상 응답이므로 쉬지 않는다.
+      failure-backoff: 5s
+      max-backoff: 60s
+      # 연속 실패 이 횟수(30초 폴링 기준 약 10분)에 도달하면 1회만 알린다.
+      # 매 사이클 알리면 장애 중에 알림이 쏟아져 그 자체가 2차 장애다.
+      alert-threshold: 20
+  delivery:
+    # 재시도 가능한 실패(5xx·타임아웃)에 대한 총 시도 횟수. 1s -> 2s -> 4s로 벌린다.
+    max-retries: 3
+    retry-backoff: 1s
+    # 429를 받은 뒤 같은 구독자에게 다시 시도하는 횟수.
+    rate-limit-retries: 2
+    # retry_after 상한. 넘는 값이 오면 기다리지 않고 그 한 명을 실패로 남긴다 —
+    # 한 명 때문에 나머지 구독자의 아침 발송이 몇 분씩 밀려서는 안 된다.
+    max-retry-after: 60s
+  message:
+    # 텔레그램 한도는 4,096자(after entities parsing)다. 여유를 두고 4,000으로 잡는다.
+    # 꽉 채우면 이모지 하나 늘어난 날 발송 전체가 400으로 실패한다.
+    max-visible-length: 4000
+    empty-text: "오늘의 AI 뉴스는 없습니다."
+  scheduler:
+    # 07:00 생성 / 07:15 재시도 / 07:30 발송. 테스트 설정에서는 false다 —
+    # 테스트 중에 배치가 돌면 실제 OpenAI·텔레그램 API를 때린다.
+    # cron과 zone은 여기 두지 않는다. @Scheduled 리터럴을 읽는 코드만 있으면 되고,
+    # 아무도 읽지 않는 설정 키는 죽은 키다.
+    enabled: true
+  ops:
+    # 발송 성공 시에만 GET 하는 데드맨스위치 (ADR-010). 비어 있으면 핑을 보내지 않는다.
+    # "뉴스 없음"이 정상 동작이라 침묵과 장애가 구분되지 않는다 — 이 역방향 감시가 그 사각지대를 메운다.
+    healthcheck-url: ${HEALTHCHECK_URL:}
+
+# spring.thymeleaf.cache 는 두지 않는다. 이 파일은 운영 설정이고,
+# 끄면 매 요청마다 템플릿을 다시 파싱한다. 개발 중 핫리로드가 필요하면
+# 실행 인자로만 켠다: --spring.thymeleaf.cache=false

@@ -39,7 +39,7 @@ src/
 | 포트 | 실패 표현 | 이유 |
 |---|---|---|
 | `NewsSource.fetch` | `FetchResult(articles, failed)` | 소스 하나가 죽어도 나머지로 다이제스트가 성립한다 |
-| `ArticleContentExtractor.extract` | `Optional.empty()` | 페이월·봇차단은 정상 흐름. 해당 기사만 탈락 |
+| `ArticleContentExtractor.extract` | `Optional.empty()` | 페이월·봇차단·SSRF 차단은 정상 흐름. 해당 기사만 탈락 |
 | `Messenger.send` | `SendResult` (sealed) | 구독자 한 명의 실패가 전체 순회를 멈추면 안 된다 |
 | `UpdateSource.getUpdates` | `PollResult` (sealed) | 폴러가 실패와 "업데이트 없음"을 구분해야 백오프를 건다 |
 | `ArticleSelector` · `ArticleSummarizer` | **예외 전파** | 선별·요약이 실패하면 그날 다이제스트 자체가 성립하지 않는다 |
@@ -69,6 +69,8 @@ Scheduler → DigestGenerationService
   3. UrlNormalizer로 정규화 → 최근 7일 digest_item.normalized_url과 대조해 중복 제거
   4. ArticleSelector: 후보 제목·출처·points만 LLM에 전달 → 1~5점 채점 → 상위 8건
   5. ArticleContentExtractor: 8건 본문 크롤링 (타임아웃 5초, 실패 시 해당 건 탈락)
+     크롤링 대상 URL은 HN에 아무나 올린 것이다. SafeUrlPolicy로 스킴·목적지 IP를
+     검사하고 리다이렉트를 직접 추적한다 (ADR-017)
   6. 3점 이상 & 본문 확보된 것 중 상위 3~5건 선정
   7. 0건이면 Digest(status=EMPTY)로 저장하고 종료 (EMPTY도 발송 대상이다 — 아래 "다이제스트 상태 규칙")
   8. ArticleSummarizer: 한글 제목 + 요약(건당 600자 이내) 생성
@@ -96,12 +98,15 @@ Scheduler → DigestSendService
   3. 이 Digest에 대해 이미 SUCCESS로 기록된 구독자를 순회 대상에서 제외한다 (재개)
   4. 구독자별 Messenger.send() 호출
        403 Forbidden → 해당 구독자 UNSUBSCRIBED 전환
-       429 Too Many Requests → 응답의 retry_after만큼 대기 후 재시도
+       429 Too Many Requests → retry_after(최대 60초)만큼 대기 후 재시도
        5xx → 지수 백오프 최대 3회
        DeliveryLog 기록
-  5. sent_at 기록 (상태 전이는 아래 "다이제스트 상태 규칙")
+  5. 한 건이라도 성공했으면 sent_at 기록 (조건은 아래 "다이제스트 상태 규칙")
+       전원 실패면 sent_at을 비워 둔다 — 재실행 여지를 남긴다 (ADR-018)
   6. 헬스체크 핑 전송. 실패율이 높으면 관리자에게 알림
 ```
+
+**전원이 실패한 발송을 "발송됨"으로 기록하지 마라.** 순회를 끝냈다는 것과 발송됐다는 것은 다르다. 텔레그램이 죽은 날 `sent_at`을 채우면 절차 1의 멱등성 체크가 재실행을 영구히 막고, 아무도 받지 못한 다이제스트가 아카이브에 발송 완료로 남는다. 관리자가 수동 재실행해도 아무 일이 일어나지 않는다 (ADR-018).
 
 ### 구독 (상시)
 ```
@@ -118,6 +123,9 @@ TelegramUpdatePoller (백그라운드 롱폴링, getUpdates)
 ```
 markSent(now):  PENDING -> SENT,  sentAt = now
                 EMPTY   -> EMPTY, sentAt = now   (status 보존)
+
+markSent 호출 조건 : succeeded > 0 || skipped > 0 || 시도 대상 0명   (ADR-018)
+                     전원 실패면 호출하지 않는다 — sentAt은 null로 남는다
 
 발송 대상     : sentAt == null    (PENDING·EMPTY 모두)
 아카이브 노출 : sentAt != null
@@ -175,3 +183,19 @@ Boot 4의 타입은 `HttpClientSettings`다. Boot 3.4~3.5의 `ClientHttpRequestF
 ## 스케줄링
 - 모든 `@Scheduled`에 `zone = "Asia/Seoul"`을 명시한다. 서버(Oracle VM)의 기본 타임존은 UTC이므로 존을 지정하지 않으면 9시간 어긋난다
 - 생성(07:00)과 발송(07:30)을 분리한다. 발송 시각이 외부 API 응답 속도에 영향받지 않게 하고, 생성 실패 시 30분의 복구 여유를 남긴다
+
+### 세 시각의 역할
+
+| 시각 | 작업 | 비고 |
+|---|---|---|
+| 07:00 | 생성 | 실패하면 관리자에게 failure 알림 |
+| 07:15 | **생성 재시도** | 오늘자 다이제스트가 이미 있으면 즉시 반환(무해). 복구되면 warning으로 알린다 |
+| 07:30 | 발송 | PENDING·EMPTY 모두 대상 |
+
+07:15가 "30분의 복구 여유"를 실제로 쓰는 유일한 장치다. 이것이 없으면 07:00 생성 실패는 곧 그날 발송 없음이고, 복구 수단이 SSH 수동 실행뿐이다. 이 프로젝트의 철학("사람이 개입해야만 복구되는 구조는 만들지 않는다")과 정면으로 어긋난다.
+
+### 스케줄러 스레드 풀은 1로 둔다
+
+`spring.task.scheduling.pool.size: 1`. Boot 기본값이며 **의도적으로 유지한다.**
+
+생성이 길어져 07:30을 넘겨도 발송은 동시 실행되지 않고 생성이 끝난 뒤 지연 실행된다. 이게 옳은 동작이다. 풀을 늘리면 생성이 진행 중인 상태에서 발송이 시작돼 다이제스트를 찾지 못하고, 관리자에게 "다이제스트 없음" 오탐 알림이 간다. 작업이 세 개(07:00 / 07:15 / 07:30)로 늘어난 뒤로 이 순차성이 더 중요해졌다.

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>OpenAI News</title>
+    <link>https://openai.com/news</link>
+    <description>Announcements and research from OpenAI</description>
+    <language>en-us</language>
+    <item>
+      <title>Introducing structured outputs for the Responses API</title>
+      <link>https://openai.com/index/structured-outputs-responses-api/</link>
+      <description>Developers can now constrain model output to a JSON schema.</description>
+      <pubDate>Wed, 05 Aug 2026 09:00:00 GMT</pubDate>
+      <guid>https://openai.com/index/structured-outputs-responses-api/</guid>
+    </item>
+    <item>
+      <title>A post from long before the collection window</title>
+      <link>https://openai.com/index/an-old-post/</link>
+      <description>Should be filtered out by the since parameter.</description>
+      <pubDate>Thu, 02 Jul 2020 09:00:00 GMT</pubDate>
+      <guid>https://openai.com/index/an-old-post/</guid>
+    </item>
+  </channel>
+</rss>

@@ -50,6 +50,17 @@ public class UrlNormalizer {
 public String extractDomain(String rawUrl);
 ```
 
+### 스킴 판별 — 파이프라인의 첫 관문
+
+```java
+/** scheme이 http 또는 https이고 host가 있으면 true. 그 외(javascript:, file:, data:, 파싱 실패)는 false. */
+public boolean isHttpUrl(String rawUrl);
+```
+
+**`normalize()`는 검증기가 아니다.** 파싱 실패 시 원본을 그대로 돌려주므로 `javascript:alert(1)`을 넣으면 그대로 나온다. 그 값이 step 2의 후보가 되고, step 10의 아카이브 화면에서 `<a th:href="...">`로 렌더링된다. **`th:text`와 달리 `th:href`는 `javascript:` 스킴을 막지 않는다** — 클릭 한 번으로 XSS다.
+
+URL은 HN에 아무나 올린 것이므로 파이프라인 최초 진입점에서 걸러야 한다. 이 메서드를 step 2의 `CandidateArticle.of`가 호출해 http/https가 아닌 후보를 탈락시킨다. 네트워크를 쓰지 않는 순수 판별이며, 목적지 IP 검사는 step 3의 `SafeUrlPolicy`가 맡는다(ADR-017).
+
 ## 테스트
 
 `src/test/java/com/example/ainewsdigest/collect/UrlNormalizerTest.java` — **네트워크를 쓰지 않는 순수 단위 테스트**.
@@ -61,6 +72,7 @@ JUnit 5 `@ParameterizedTest` + `@CsvSource`로 위 표의 규칙을 각각 검�
 2. 경로 대소문자가 다르면 **다른** 값으로 정규화된다 (`/Post` ≠ `/post`)
 3. `null`, 빈 문자열, `"not a url"` 입력에 예외를 던지지 않는다
 4. `extractDomain`이 `https://www.techcrunch.com/2026/x` → `techcrunch.com`
+5. `isHttpUrl`이 `http://a.com/x`·`https://a.com/x` 에 true, **`javascript:alert(1)`·`file:///etc/passwd`·`data:text/html,x`·`null`·`"not a url"` 에 false**를 돌려준다
 
 ## Acceptance Criteria
 

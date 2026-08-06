@@ -27,6 +27,7 @@ Thymeleaf 서버 사이드 렌더링으로 3개 화면을 만든다.
 - **`status == SENT`로 필터링하지 마라.** EMPTY는 발송돼도 status가 EMPTY로 남으므로 그 날짜가 아카이브에서 통째로 사라진다 (ARCHITECTURE.md "다이제스트 상태 규칙")
 - 존재하지 않는 날짜는 404를 반환한다
 - 잘못된 날짜 형식은 400을 반환한다
+- **페이지 크기에 상한을 둔다.** `@PageableDefault(size = 20)`를 명시하고, `application.yml`의 `spring.data.web.pageable.max-page-size: 50`에 의존한다. 상한이 없으면 Boot 기본값 2,000이 적용되어 `?size=2000` 한 번에 다이제스트 2,000건과 그 항목 전량이 조회된다
 
 ### DTO — Entity를 그대로 넘기지 마라 (CLAUDE.md CRITICAL)
 
@@ -64,6 +65,8 @@ static/css/main.css
 - 페이지 템플릿은 `templates/{도메인}/{화면}.html` 배치
 - **인라인 `style` 속성 금지.** 모든 스타일은 `main.css`의 클래스로
 - **텍스트 출력은 전부 `th:text`를 쓴다. `th:utext`를 쓰지 마라.** 화면에 뿌리는 제목·요약은 LLM이 만든 문자열이라 무엇이 들어올지 보장할 수 없다. `th:text`가 이스케이프해주는 것이 유일한 방어선이다
+- **`th:href`는 이스케이프가 방어가 아니다.** `th:text`와 달리 `th:href`는 `javascript:` 스킴을 막지 않으므로, 값이 링크로 살아 있는 채 클릭 가능한 XSS가 된다. `sourceUrl`은 HN에서 온 값이다 — 그래서 **step 2의 `CandidateArticle.of`가 진입 시점에 http/https만 통과시킨다.** 화면에서 다시 검사하지 않는 근거가 이것이며, 그 검증을 제거하면 이 화면이 뚫린다
+- 외부 링크에는 `rel="noopener noreferrer"`를 붙인다
 - **JavaScript를 쓰지 마라** (UI_GUIDE 규약)
 - 구독 버튼은 `https://t.me/{botUsername}?start=web` 으로 링크한다. `botUsername`은 설정값으로 주입한다
 
@@ -90,6 +93,9 @@ ainewsdigest:
 5. 없는 날짜는 404
 6. `GET /archive/2026-13-99` 같은 잘못된 형식은 400
 7. 미발송(`sentAt == null`) 다이제스트는 어느 화면에도 노출되지 않는다
+8. **`GET /archive?size=5000` 이 상한(50) 이하로 잘린다** (서비스에 전달된 `Pageable`의 크기로 검증)
+9. **상세 화면의 항목이 `position` 오름차순으로 렌더링된다** (역순으로 담은 뷰를 넣어도 순서가 유지되는지 — step 0의 `@OrderBy`와 짝이다)
+10. 외부 출처 링크에 `rel="noopener noreferrer"`가 붙는다
 
 `DigestQueryServiceTest` — Testcontainers + `@SpringBootTest`
 
@@ -126,6 +132,8 @@ ainewsdigest:
 - RSS 출력(`/feed.xml`)을 만들지 마라. 이유: PRD MVP 제외 사항이다
 - 미발송(`sentAt == null`) 다이제스트를 노출하지 마라. 이유: 아직 구독자에게 발송되지 않은 내용이 웹에 먼저 뜬다
 - **`th:utext`를 쓰지 마라.** 이유: 화면 내용이 전부 LLM 생성물이다. 이스케이프를 끄는 순간 XSS가 열린다
+- `th:href`에 검증 없는 URL이 들어간다고 가정하지 마라. 이유: `th:href`는 `javascript:`를 막지 않는다. 안전한 이유는 step 2가 진입 시점에 스킴을 검증하기 때문이며, 그 검증에 의존하고 있다는 사실을 여기 주석으로 남겨라
+- 페이지 크기를 무제한으로 두지 마라. 이유: Boot 기본 상한이 2,000이라 요청 한 번으로 다이제스트 2,000건과 항목 전량이 조회된다
 - **`digest.message_text`를 화면에 렌더링하지 마라.** 이유: 그건 텔레그램용으로 조립된 HTML 덩어리다. 그대로 뿌리려면 `th:utext`가 필요하고 위 항목을 어기게 된다. 화면은 `digest_item`으로만 만든다
 - `DigestQueryService`를 새로 만들지 마라. 이유: step 8이 이미 만들었다. 같은 조회가 두 벌 생기면 봇과 웹이 서로 다른 최신호를 보여준다
 - 기존 테스트를 깨뜨리지 마라

@@ -1,0 +1,305 @@
+/*
+ * AI News Digest — 다크모드 고정 단일 팔레트 (UI_GUIDE).
+ * 라이트모드 토글도, prefers-color-scheme 분기도 두지 않는다. 팔레트는 하나다.
+ * 개별 요소에 raw hex를 쓰지 않는다. 색은 전부 아래 커스텀 프로퍼티를 거친다.
+ */
+:root {
+	--color-bg-page: #0a0a0a;
+	--color-bg-card: #141414;
+	--color-border: #262626;
+
+	--color-text-primary: #fafafa;
+	--color-text-body: #d4d4d4;
+	--color-text-muted: #a3a3a3;
+	--color-text-disabled: #737373;
+
+	--color-accent: #f59e0b;
+	--color-accent-hover: #fbbf24;
+
+	--color-positive: #4ade80;
+	--color-negative: #f87171;
+	--color-neutral: #525252;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	background: var(--color-bg-page);
+}
+
+body {
+	margin: 0;
+	background: var(--color-bg-page);
+	color: var(--color-text-body);
+	font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+	font-size: 15px;
+	line-height: 1.75;
+}
+
+/* 레이아웃 — 읽기 중심. 대시보드가 아니므로 넓히지 않는다. */
+.page {
+	max-width: 720px;
+	margin: 0 auto;
+	padding: 32px 24px 64px;
+}
+
+main {
+	display: block;
+}
+
+/* 링크·버튼의 색 전환만 허용한다 (0.15s). 그 외 애니메이션은 일체 두지 않는다. */
+a {
+	color: var(--color-accent);
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+a:hover {
+	color: var(--color-accent-hover);
+	text-decoration: underline;
+}
+
+/* 헤더 / 푸터 */
+.site-header {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 16px;
+	padding-bottom: 16px;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.site-header__title {
+	color: var(--color-text-primary);
+	font-size: 15px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.site-header__title:hover {
+	color: var(--color-text-primary);
+	text-decoration: none;
+}
+
+.site-nav {
+	display: flex;
+	gap: 16px;
+	font-size: 13px;
+}
+
+.site-nav a {
+	color: var(--color-text-muted);
+}
+
+.site-nav a:hover {
+	color: var(--color-accent-hover);
+	text-decoration: none;
+}
+
+.site-footer {
+	margin-top: 40px;
+	padding-top: 16px;
+	border-top: 1px solid var(--color-border);
+	color: var(--color-text-disabled);
+	font-size: 13px;
+}
+
+.site-footer p {
+	margin: 0;
+}
+
+/* 타이포그래피 */
+.page-title {
+	margin: 40px 0 12px;
+	color: var(--color-text-primary);
+	font-size: 28px;
+	font-weight: 700;
+	line-height: 1.35;
+}
+
+.date-header {
+	display: inline-block;
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: 14px;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
+.notice {
+	margin: 12px 0 0;
+	color: var(--color-text-muted);
+}
+
+/* 랜딩 */
+.intro__lead {
+	margin: 0 0 16px;
+	color: var(--color-text-body);
+}
+
+.btn-primary {
+	display: inline-block;
+	background: var(--color-accent);
+	color: var(--color-bg-page);
+	border: none;
+	border-radius: 6px;
+	padding: 10px 18px;
+	font-size: 15px;
+	font-weight: 600;
+	transition: background-color 0.15s ease;
+}
+
+.btn-primary:hover {
+	background: var(--color-accent-hover);
+	color: var(--color-bg-page);
+	text-decoration: none;
+}
+
+.btn-text {
+	color: var(--color-text-disabled);
+	background: none;
+	border: none;
+	font-size: 13px;
+}
+
+.btn-text:hover {
+	color: var(--color-text-muted);
+	text-decoration: none;
+}
+
+.recent {
+	margin-top: 40px;
+}
+
+.more {
+	margin: 16px 0 0;
+	font-size: 13px;
+}
+
+/* 카드 */
+.card {
+	background: var(--color-bg-card);
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	padding: 20px 24px;
+}
+
+.digest + .digest {
+	margin-top: 16px;
+}
+
+/* 다이제스트 항목 */
+.digest-items {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.digest-item {
+	padding: 16px 0;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.digest-item:last-child {
+	border-bottom: none;
+}
+
+.digest-item:first-child {
+	padding-top: 12px;
+}
+
+.digest-item__title {
+	margin: 0 0 4px;
+	color: var(--color-text-primary);
+	font-size: 17px;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+.digest-item__summary {
+	margin: 0 0 4px;
+	color: var(--color-text-body);
+	font-size: 15px;
+	line-height: 1.75;
+}
+
+.digest-item__source {
+	margin: 0;
+	color: var(--color-text-muted);
+	font-size: 13px;
+}
+
+.digest-item__source a {
+	color: var(--color-accent);
+	text-decoration: none;
+}
+
+.digest-item__source a:hover {
+	text-decoration: underline;
+}
+
+/* 아카이브 목록 */
+.archive-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.archive-entry {
+	padding: 16px 0;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.archive-entry:last-child {
+	border-bottom: none;
+}
+
+.archive-entry__meta {
+	margin-left: 8px;
+	color: var(--color-text-disabled);
+	font-size: 13px;
+}
+
+.archive-entry__titles {
+	list-style: none;
+	margin: 4px 0 0;
+	padding: 0;
+	color: var(--color-text-body);
+}
+
+.archive-entry__titles li {
+	padding: 2px 0;
+}
+
+.pagination {
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	margin-top: 40px;
+	padding-top: 16px;
+	border-top: 1px solid var(--color-border);
+}
+
+.pagination__status {
+	color: var(--color-text-disabled);
+	font-size: 13px;
+}
+
+/* 상세 */
+.back {
+	margin: 24px 0 0;
+}
+
+@media (max-width: 720px) {
+	.page {
+		padding: 24px 16px 48px;
+	}
+
+	.card {
+		padding: 16px;
+	}
+}

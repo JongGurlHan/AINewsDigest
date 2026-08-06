@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments/layout :: head('아카이브 | AI News Digest')}"></head>
+<body>
+<div class="page">
+	<div th:replace="~{fragments/layout :: header}"></div>
+
+	<main>
+		<h1 class="page-title">아카이브</h1>
+
+		<p class="notice" th:if="${page.empty}">아직 발송된 다이제스트가 없습니다.</p>
+
+		<ul class="archive-list">
+			<li class="archive-entry" th:each="digest : ${page.content}">
+				<a class="date-header" th:href="@{/archive/{date}(date=${digest.digestDate})}"
+				   th:text="${digest.displayDate}">2026년 8월 5일 (수)</a>
+				<span class="archive-entry__meta" th:if="${digest.empty}">뉴스 없음</span>
+				<span class="archive-entry__meta" th:unless="${digest.empty}"
+				      th:text="|${#lists.size(digest.items)}건|">3건</span>
+				<ul class="archive-entry__titles" th:unless="${digest.empty}">
+					<li th:each="item : ${digest.items}" th:text="${item.titleKo}">한글 제목</li>
+				</ul>
+			</li>
+		</ul>
+
+		<nav class="pagination" th:if="${page.totalPages > 1}">
+			<a class="btn-text" th:if="${page.hasPrevious()}"
+			   th:href="@{/archive(page=${page.number - 1})}">이전</a>
+			<span class="pagination__status" th:text="|${page.number + 1} / ${page.totalPages}|">1 / 1</span>
+			<a class="btn-text" th:if="${page.hasNext()}"
+			   th:href="@{/archive(page=${page.number + 1})}">다음</a>
+		</nav>
+	</main>
+
+	<div th:replace="~{fragments/layout :: footer}"></div>
+</div>
+</body>
+</html>

@@ -31,14 +31,17 @@
 public enum SubscriberStatus { ACTIVE, UNSUBSCRIBED }
 
 // subscription/Subscriber.java  — table: subscriber
-// 필드: id, chatId, status, source, subscribedAt, unsubscribedAt, consecutiveFailures
+// 필드: id, chatId, status, source, subscribedAt, unsubscribedAt
 // 도메인 동작을 엔티티에 둔다 (setter 남발 금지):
 //   static Subscriber subscribe(long chatId, String source, Instant now)
-//   void resubscribe(Instant now)          // UNSUBSCRIBED -> ACTIVE, 실패 카운터 0으로
+//   void resubscribe(Instant now)          // UNSUBSCRIBED -> ACTIVE
 //   void unsubscribe(Instant now)          // -> UNSUBSCRIBED
-//   void recordDeliveryFailure()           // consecutiveFailures++
-//   void recordDeliverySuccess()           // consecutiveFailures = 0
 //   boolean isActive()
+//
+// 주의: 스키마의 consecutive_failures 컬럼은 매핑하지 않는다. MVP 검수에서
+// 자동 해지 카운터를 제거했다 (죽은 구독자는 step 9의 403 즉시 해지가 처리한다).
+// V1은 수정 금지지만 not null default 0이라 INSERT에 무해하고,
+// ddl-auto: validate는 엔티티에 없는 DB 컬럼을 문제 삼지 않는다.
 
 // digest/DigestStatus.java
 public enum DigestStatus { PENDING, SENT, EMPTY, FAILED }
@@ -46,6 +49,9 @@ public enum DigestStatus { PENDING, SENT, EMPTY, FAILED }
 // digest/Digest.java  — table: digest
 // 필드: id, digestDate(LocalDate), status, messageText, generatedAt, sentAt
 //      items(List<DigestItem>, @OneToMany(mappedBy="digest", cascade=ALL, orphanRemoval=true))
+//      items에 @OrderBy("position ASC")를 반드시 붙인다.
+//        이유: 없으면 DB가 돌려주는 순서 그대로다. 순서 보장이 없어 아카이브 화면의
+//              1·2·3번이 뒤섞일 수 있고, 재현되지 않아 찾기 어려운 버그가 된다.
 //   static Digest pending(LocalDate date, String messageText, Instant now)
 //   static Digest empty(LocalDate date, String messageText, Instant now)
 //   void addItem(DigestItem item)          // 양방향 연관관계를 여기서 맞춘다
@@ -54,6 +60,8 @@ public enum DigestStatus { PENDING, SENT, EMPTY, FAILED }
 //     -> EMPTY이면 status를 EMPTY로 유지한 채 sentAt = now 만 채운다
 //        이유: "그날 뉴스가 없었다"는 정보가 발송과 함께 사라지면 안 된다.
 //              ARCHITECTURE.md "다이제스트 상태 규칙" / ADR-014
+//     -> 호출 여부는 발송 결과를 아는 step 9가 판단한다. 엔티티 안에서 조건을 따지지 마라
+//        (ADR-018: 전원 실패면 markSent를 아예 호출하지 않는다)
 //   boolean isSent()                       // sentAt != null
 
 // digest/DigestItem.java  — table: digest_item
@@ -115,7 +123,7 @@ public interface DeliveryLogRepository extends JpaRepository<DeliveryLog, Long> 
 최소 검증 항목:
 1. `Subscriber` 저장 후 `findByChatId`로 조회된다
 2. 같은 `chatId`로 두 번 저장하면 제약 위반 예외가 발생한다
-3. `Digest`에 `DigestItem`을 3개 담아 저장하면 cascade로 함께 저장된다
+3. `Digest`에 `DigestItem`을 3개 담아 저장하면 cascade로 함께 저장되고, **`position` 오름차순으로 조회된다** (역순으로 add한 뒤 다시 읽어 검증한다)
 4. **같은 `digestDate`로 `Digest`를 두 번 저장하면 제약 위반 예외가 발생한다** (하루 1회 발송 멱등성)
 5. `findNormalizedUrlsSince` / `findTitlesSince`가 기간 필터링을 올바르게 한다
 6. `Subscriber.unsubscribe()` 후 `findAllByStatus(ACTIVE)`에 안 잡힌다

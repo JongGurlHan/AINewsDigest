@@ -1,0 +1,25 @@
+# 빌드 컨텍스트를 최소로 유지한다. 특히 .env는 절대 이미지에 들어가면 안 된다 —
+# 레이어에 한 번 박히면 파일을 지우는 레이어를 덧붙여도 히스토리에 남는다.
+.env
+
+# 호스트의 빌드 산출물. 컨테이너 안에서 새로 빌드하므로 넣을 이유가 없고,
+# 넣으면 build/libs에 stale JAR이 섞여 COPY의 와일드카드가 두 개를 집는다.
+build/
+.gradle/
+
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# 문서·페이즈 산출물·개발 도구 설정은 런타임과 무관하다
+docs/
+phases/
+scripts/
+.claude/
+.pytest_cache/
+*.md
+
+.idea/
+.vscode/
+out/

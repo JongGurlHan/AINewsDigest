@@ -2,18 +2,111 @@
   "project": "AI News Digest",
   "phase": "0-mvp",
   "steps": [
-    { "step": 0, "name": "domain-entities", "status": "pending" },
-    { "step": 1, "name": "url-normalizer", "status": "pending" },
-    { "step": 2, "name": "collect-sources", "status": "pending" },
-    { "step": 3, "name": "article-extractor", "status": "pending" },
-    { "step": 4, "name": "curation-openai", "status": "pending" },
-    { "step": 5, "name": "message-builder", "status": "pending" },
-    { "step": 6, "name": "digest-generation", "status": "pending" },
-    { "step": 7, "name": "telegram-client", "status": "pending" },
-    { "step": 8, "name": "subscription-flow", "status": "pending" },
-    { "step": 9, "name": "digest-send", "status": "pending" },
-    { "step": 10, "name": "web-archive", "status": "pending" },
-    { "step": 11, "name": "scheduler-ops", "status": "pending" },
-    { "step": 12, "name": "deploy-ci", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "domain-entities",
+      "status": "completed",
+      "started_at": "2026-08-06T04:33:18+0900",
+      "completed_at": "2026-08-06T04:55:53+0900",
+      "summary": "V1__init.sql의 4개 테이블에 대응하는 JPA 엔티티(Subscriber/Digest/DigestItem/DeliveryLog)와 리포지토리 3종을 subscription·digest·delivery 패키지에 추가. 상태 변경은 도메인 메서드로만 하고(markSent는 EMPTY를 보존), Testcontainers @DataJpaTest 13건으로 검증했다."
+    },
+    {
+      "step": 1,
+      "name": "url-normalizer",
+      "status": "completed",
+      "started_at": "2026-08-06T04:55:54+0900",
+      "completed_at": "2026-08-06T04:59:48+0900",
+      "summary": "collect 패키지에 상태 없는 UrlNormalizer 빈 추가. java.net.URI만으로 normalize(스킴·호스트 소문자화, https 통일, www·기본포트·fragment·추적파라미터 제거, 쿼리 이름순 정렬, 후행 슬래시 제거, 경로 대소문자 보존)와 extractDomain·isHttpUrl(파이프라인 진입 스킴 관문)을 구현하고 순수 단위 테스트 44건으로 검증했다."
+    },
+    {
+      "step": 2,
+      "name": "collect-sources",
+      "status": "completed",
+      "started_at": "2026-08-06T04:59:49+0900",
+      "completed_at": "2026-08-06T14:58:21+0900",
+      "summary": "collect 패키지에 NewsSource 포트와 FetchResult(articles, failed)·CandidateArticle.of(스킴·제목·도메인 100자 검증) 값 객체를 추가하고, HackerNewsClient(키워드별 호출 후 normalizedUrl 기준 병합, url null hit 제외)·RssFeedClient(rome으로 RSS2.0/Atom, allowDoctypes 기본값 유지, 피드 부분 실패는 partial)·ChangelogClient(최신 버전 섹션 1건, ?v=<version>으로 중복 제거 회피, 버전 파싱 실패는 failure) 3종을 구현했다. 타임아웃은 어댑터 생성자에서 HttpClientSettings.withReadTimeout(10s)로 지정하고 설정은 @ConfigurationProperties 3종으로 바인딩했다. WireMock 기반 단위 테스트 29건으로 검증했다(전체 89건 통과)."
+    },
+    {
+      "step": 3,
+      "name": "article-extractor",
+      "status": "completed",
+      "started_at": "2026-08-06T14:58:22+0900",
+      "completed_at": "2026-08-06T15:08:11+0900",
+      "summary": "collect 패키지에 ArticleContentExtractor 포트와 SafeUrlPolicy·JsoupArticleExtractor·ExtractorProperties를 추가. SafeUrlPolicy는 UrlNormalizer.isHttpUrl로 스킴을 거르고 getAllByName으로 해석한 주소가 하나라도 loopback·link-local·site-local·wildcard·multicast·IPv6 unique-local(fc00::/7)이면 거부한다. 추출기는 followRedirects(false)로 최대 3홉을 직접 따라가며 홉마다 정책을 재검사하고, 노이즈 태그 제거 후 article→main→[role=main]→콘텐츠 클래스→<p> 밀도 최대 블록 순으로 본문을 골라 200자 미만이면 실패·3,000자 초과면 절단한다. 실패는 전부 Optional.empty()이며 정책 위반만 WARN으로 구분해 남긴다. 픽스처 기반 파싱 테스트와 WireMock SSRF 테스트 40건으로 검증했다(전체 129건 통과)."
+    },
+    {
+      "step": 4,
+      "name": "curation-openai",
+      "status": "completed",
+      "started_at": "2026-08-06T15:08:11+0900",
+      "completed_at": "2026-08-06T15:24:22+0900",
+      "summary": "curation 패키지에 ArticleSelector·ArticleSummarizer 포트와 값 객체 3종(ScoredArticle/ArticleWithContent/SummarizedArticle), 저수준 OpenAiClient, 구현체 2종을 추가. 클라이언트는 생성자에서 HttpClientSettings.withReadTimeout(60s)로 전역 10초를 덮고, response_format에 strict JSON Schema를 실어 구조를 강제하며, 429·5xx·I/O만 지수 백오프로 최대 3회 시도하고 그 외 4xx는 즉시 CurationException으로 포기한다. 선별기는 우선순위·1~5점 기준·recentTitles를 프롬프트에 박고 index로 후보와 재매칭해 점수 내림차순(동점은 입력 순서)으로 돌려주며 범위 밖 점수는 clamp한다. 요약기는 본문을 <<<ARTICLE>>> 구분자로 감싸고(본문 내 구분자는 제거) 신뢰 금지 지시를 시스템 프롬프트에 넣으며, titleKo 200자·summaryKo 600자를 offsetByCodePoints로 코드포인트 경계에서 잘라 warn을 남긴다. WireMock 기반 단위 테스트 38건으로 검증했다(전체 167건 통과)."
+    },
+    {
+      "step": 5,
+      "name": "message-builder",
+      "status": "completed",
+      "started_at": "2026-08-06T15:24:23+0900",
+      "completed_at": "2026-08-06T15:32:06+0900",
+      "summary": "digest 패키지에 DigestMessageBuilder와 DigestMessage(html/visibleLength/includedCount/includedArticles)·MessageProperties를 추가. 조립기가 HTML과 \"보이는 길이\"를 함께 쌓아 태그·href URL은 0자, &amp;·&lt;·&gt;는 1자로 세고(별도 파서를 두지 않아 조립기와 어긋날 여지를 없앰), 이스케이프는 한 글자씩 훑어 & < > 셋만 치환한다(replace 체이닝의 이중 이스케이프 차단). 4,000자를 넘으면 최하위 항목부터 빼고 번호를 다시 매기며, 1건까지 줄여도 넘으면 이스케이프 전 원문 summaryKo를 offsetByCodePoints로 잘라 재조립·재측정을 반복한다. includedArticles에는 잘린 요약이 담겨 step 6 저장분이 실제 발송 내용과 일치한다. href의 &<>도 이스케이프하고 큰따옴표는 %22로 인코딩한다. 순수 단위 테스트 17건으로 검증했다(전체 184건 통과)."
+    },
+    {
+      "step": 6,
+      "name": "digest-generation",
+      "status": "completed",
+      "started_at": "2026-08-06T15:32:06+0900",
+      "completed_at": "2026-08-06T15:44:05+0900",
+      "summary": "digest 패키지에 DigestGenerationService와 중첩 record GenerationResult(status/itemCount/candidateCount/failedSourceCount)를 추가. 새 어댑터 없이 기존 포트 4종을 조립해 멱등성 확인 → 24시간 수집(FetchResult.failed 카운트) → normalizedUrl 중복 제거 + 최근 7일 발송분 제외 → 선별(minScore 3 이상 상위 8건) → 선별분만 크롤링 → 상위 5건 요약 → 조립 → 저장을 잇는다. generate()에 @Transactional을 붙이지 않고 리포지토리 호출 단위(조회는 readOnly, save 한 번은 cascade로 원자적)로 DB 접근을 쪼개 외부 HTTP 호출을 트랜잭션 밖에 뒀다. 저장분은 summarized가 아니라 DigestMessage.includedArticles()로 만들어 건수 축소·요약 절단이 아카이브에 그대로 반영되고, 저장 직전 title_ko 200자·source_domain 100자를 offsetByCodePoints로 한 번 더 자른다. 채택 0건은 조립기가 만든 \"뉴스 없음\" 메시지로 EMPTY 저장(sentAt은 비워 발송 대상 유지). 페이크 포트 4종을 support/에 두고 Testcontainers @SpringBootTest 10건으로 검증했다(전체 194건 통과)."
+    },
+    {
+      "step": 7,
+      "name": "telegram-client",
+      "status": "completed",
+      "started_at": "2026-08-06T15:44:06+0900",
+      "completed_at": "2026-08-06T15:55:47+0900",
+      "summary": "delivery 패키지에 Messenger·UpdateSource 포트와 sealed 결과 타입 2종(SendResult 4분기/PollResult 2분기)·TelegramUpdate·TelegramProperties를 추가하고, 둘을 함께 구현하는 TelegramClient를 만들었다. 발송(10s)과 폴링(poll-timeout+10s)의 read timeout이 달라 RestClient를 두 개 만들고(builder.clone()), 요청 대기 시간은 설정된 poll-timeout으로 상한을 건다. onStatus로 기본 에러 핸들러를 끈 뒤 상태 코드로 분기해 200+ok:true→Success, 403→Blocked, 429→parameters.retry_after로 RateLimited, 4xx→Failed(retryable=false), 5xx·I/O→Failed(retryable=true)로 돌려주고 예외를 밖으로 내보내지 않는다. getUpdates는 allowed_updates=[\"message\"]로 요청해 text 없는 업데이트만 걸러내고, 실패는 빈 리스트가 아니라 PollResult.Failure로 구분한다(ADR-016). 토큰이 URL 경로에 박히므로 mask()가 /bot<숫자>:<영숫자>(%3A 인코딩 포함)를 /bot***로 바꾸고 설정 토큰 자체도 한 번 더 지운 뒤 200자로 잘라, 로그·description·reason이 전부 이를 통과한다(예외 객체는 로거에 넘기지 않는다). WireMock 기반 단위 테스트 15건으로 검증했다(전체 209건 통과)."
+    },
+    {
+      "step": 8,
+      "name": "subscription-flow",
+      "status": "completed",
+      "started_at": "2026-08-06T15:55:47+0900",
+      "completed_at": "2026-08-06T16:10:56+0900",
+      "summary": "subscription에 SubscriptionService(start/stop + SubscribeOutcome 3분기)를, digest에 DigestQueryService와 DigestView/DigestItemView DTO를, delivery에 BotCommandHandler·TelegramUpdatePoller·PollingProperties·Sleeper/ThreadSleeper를 추가했다. start는 조회 후 신규 저장 또는 resubscribe로 멱등하고(재활성화 시 source는 보존), payload는 [A-Za-z0-9_-]만 남겨 50자로 자른 뒤 비면 null로 저장해 varchar(50) 위반이 handle()에 삼켜져 구독이 조용히 실패하는 경로를 막는다. 핸들러는 ALREADY_ACTIVE면 안내 한 통만 보내고 NEW·REACTIVATED일 때만 최근호를 이어 보내며, 보낼 최근호가 없으면 안내 문구를 환영 메시지에 붙여 한 통으로 끝낸다. 최근호 조회는 DigestRepository 대신 DigestQueryService(@Transactional(readOnly=true) 클래스 레벨)에 두고 sentAt is not null and status <> EMPTY를 digestDate 내림차순 limit 1로 뽑아 step 10과 공유한다. 폴러는 @ConditionalOnProperty(기본 켬, 테스트 설정에서 끔) + SmartLifecycle로 데몬 스레드 하나를 돌리고, Updates면 offset=maxUpdateId+1로 전진시키며 실패 카운터를 리셋하고(빈 Updates에는 쉬지 않는다), Failure면 offset을 그대로 둔 채 min(5s×2^(n-1), 60s)만큼 주입된 Sleeper로 쉬며 임계값 도달 시 ERROR를 1회만 남긴다(step 11이 알림을 붙인다). 업데이트 처리 예외와 사이클 예외를 모두 잡아 루프를 유지하고 종료 시 인터럽트로 깨운다. Testcontainers @SpringBootTest 16건과 순수 단위 8건, 총 24건을 추가했다(전체 233건 통과)."
+    },
+    {
+      "step": 9,
+      "name": "digest-send",
+      "status": "completed",
+      "started_at": "2026-08-06T16:10:57+0900",
+      "completed_at": "2026-08-06T16:25:09+0900",
+      "summary": "delivery에 DigestSendService(중첩 record SendSummary)와 DeliveryProperties를 추가했다. 발송 대상은 status가 아니라 sentAt is null로 고르고(PENDING·EMPTY 모두), sentAt이 이미 있으면 아무것도 하지 않는다. 활성 구독자에서 이 다이제스트의 SUCCESS 로그가 있는 사람을 빼 재개하고(totalSubscribers는 스킵 제외 — step 11의 실패율 분모), 결과 타입 4분기를 각각 다르게 다룬다: 403은 즉시 unsubscribe + FAILED \"403\", 429는 retry_after가 max-retry-after(60s) 이하일 때만 rate-limit-retries(2)까지 대기 후 재시도하고 넘으면 대기 없이 FAILED \"429\", retryable 5xx·IO는 retry-backoff 1s를 2배씩 늘려 max-retries(3)회까지, 그 외 4xx는 즉시 실패다. send()에 @Transactional을 붙이지 않고 REQUIRES_NEW로 고정한 TransactionTemplate으로 구독자 한 명 단위(403은 로그+해지 한 묶음)로 커밋해 텔레그램 호출을 트랜잭션 밖에 뒀다. markSent는 succeeded>0 || skipped>0 || 시도 0명일 때만 부르고(ADR-018) 호출 여부를 sentAtRecorded로 올려보낸다(멱등 재호출도 true — \"발송 완료로 기록되었는가\"라는 뜻이라 false면 step 11이 오탐한다). 대기는 주입된 Sleeper로 빼 테스트가 실제로 자지 않는다. FakeMessenger에 방별 대본·고정값·발송 중 관찰 훅을 더하고, @Transactional 없이(커밋 경계를 지우지 않으려고) 전후로 데이터를 지우는 Testcontainers @SpringBootTest 19건으로 검증했다 — 트랜잭션 분리는 순회 도중 REQUIRES_NEW로 조회해 앞선 SUCCESS 로그가 이미 커밋됐는지로 확인한다(전체 252건 통과)."
+    },
+    {
+      "step": 10,
+      "name": "web-archive",
+      "status": "completed",
+      "started_at": "2026-08-06T16:25:10+0900",
+      "completed_at": "2026-08-06T16:44:20+0900",
+      "summary": "digest에 DigestController(랜딩/아카이브 목록/날짜 상세)와 Thymeleaf 템플릿 4종(fragments/layout, digest/landing·archive·detail), static/css/main.css를 추가하고 DigestQueryService에 화면용 조회 3종을 붙였다. 노출 기준은 status가 아니라 sentAt is not null 하나여서 발송된 EMPTY도 목록에 남고 DigestView.isEmpty()로 \"뉴스 없음\"이 표시된다(ADR-014). 페이징과 컬렉션 fetch join을 함께 쓰면 Hibernate가 전 행을 읽어 메모리에서 자르므로, id 페이지(count+ids)를 확정한 뒤 left join fetch 한 번으로 항목을 채워 건수와 무관하게 쿼리 3회로 끝낸다. 정렬은 요청 파라미터가 아니라 서비스가 digestDate desc로 고정하고, 페이지 크기 상한은 @PageableDefault(20) + spring.data.web.pageable.max-page-size(50)이 건다 — 테스트 클래스패스의 application.yml이 운영 것을 통째로 가리므로 같은 값을 테스트 설정에도 뒀다. displayDate(2026년 8월 5일 (수))는 템플릿이 아니라 DigestView의 파생 접근자가 만들고, 항목 순서는 DTO 생성자가 position 오름차순으로 다시 세워 @OrderBy가 닿지 않는 경로도 화면 순서가 흔들리지 않는다. 출력은 전부 th:text이며(LLM 생성 문자열이 화면 내용의 전부다) message_text는 렌더링하지 않는다. th:href의 sourceUrl이 안전한 근거는 step 2의 CandidateArticle.of가 진입 시점에 http/https만 통과시키기 때문이고 그 의존을 템플릿 주석으로 남겼다. 구독 딥링크는 TelegramProperties.botUsername(기본 ainewsdigest_bot)에서 조립한다. CSS는 UI_GUIDE 팔레트를 커스텀 프로퍼티로만 쓰고 색 전환 0.15s 외 애니메이션·그라데이션·블러·글로우를 두지 않았다. @WebMvcTest 10건과 Testcontainers @SpringBootTest 7건을 추가했다(전체 269건 통과)."
+    },
+    {
+      "step": 11,
+      "name": "scheduler-ops",
+      "status": "completed",
+      "started_at": "2026-08-06T16:44:21+0900",
+      "completed_at": "2026-08-06T16:58:50+0900",
+      "summary": "global에 DigestScheduler(07:00 생성 / 07:15 재시도 / 07:30 발송, 셋 다 zone=\"Asia/Seoul\")·AdminNotifier·HealthPinger·OpsProperties·SchedulingConfig(@EnableScheduling + Clock 빈)·ManualRunner를 추가하고, step 8이 남겨 둔 폴러의 알림 자리를 AdminNotifier로 연결했다. 날짜는 전부 clock.withZone(Asia/Seoul)을 거쳐 구해 서버 기본 타임존(UTC)이 새어들지 않게 하고, cron·zone은 어노테이션 리터럴로만 두어 죽은 설정 키를 만들지 않았다. 07:15 복구 판정은 GenerationResult로 할 수 없어(조용한 날 새로 만든 EMPTY와 이미 있어서 돌아온 EMPTY가 둘 다 (EMPTY,0,0,0)이다) 07:00 실패 플래그 하나로 하며, 재시도에 별도 멱등성 검사를 두지 않았다(generate()가 이미 막는다). 알림 등급은 candidateCount==0 && failedSourceCount>0이면 failure(수집 전면 실패), 둘 다 0이면 무알림(진짜 조용한 날), 후보가 있는데 실패 소스가 있으면 warning으로 가르고, 발송은 digestFound==false·sentAtRecorded==false를 각각 failure로 따로 알린 뒤 그 두 경로에서는 pingSuccess()를 부르지 않는다 — 실패율 30%(경계 포함) 경고는 시도분 분모로 계산하고 핑은 그대로 나간다. AdminNotifier는 admin-chat-id가 비었거나 숫자가 아니면 조용히 넘어가고 Messenger 예외·실패 결과를 전부 삼키며, 이스케이프와 3,500자 절단을 한 번에 처리해(따로 하면 &가 5배로 늘거나 &amp;가 반으로 쪼개진다) 엔티티·서로게이트 페어가 갈라지지 않는다. HealthPinger는 read timeout 5s에 onStatus로 기본 핸들러를 끄고 URI.create로 넘겨 상태 코드·I/O·URL 오타까지 전부 로그로만 남긴다. 수동 트리거는 HTTP가 아니라 ApplicationRunner의 --ainewsdigest.run=generate|send이며 서비스가 아닌 스케줄러를 거쳐 불러 날짜·알림·핑 규칙이 스케줄 실행과 갈라지지 않게 했다. 스케줄러는 @ConditionalOnProperty(ainewsdigest.scheduler.enabled)로 테스트 설정에서 꺼진다. 순수 단위 테스트 33건을 추가했다(전체 302건 통과)."
+    },
+    {
+      "step": 12,
+      "name": "deploy-ci",
+      "status": "completed",
+      "started_at": "2026-08-06T16:58:50+0900",
+      "completed_at": "2026-08-06T17:10:27+0900",
+      "summary": "애플리케이션 코드는 건드리지 않고 Dockerfile·.dockerignore·docker-compose.yml·.env.example·.github/workflows/ci.yml·README.md를 추가했다. 베이스 이미지는 linux/arm64 매니페스트를 포함하는 eclipse-temurin:21-jdk-noble / 21-jre-noble로 고정하고(latest 금지, ADR-001), 빌드 스테이지는 gradle/·gradlew·*.gradle.kts를 먼저 복사해 dependencies로 의존성 레이어를 굳힌 뒤 src를 복사해 bootJar만 돌린다 — 테스트는 빌드 컨테이너에 Docker 데몬이 없어 Testcontainers가 뜨지 못하므로 CI와 로컬에서만 돈다(ADR-011). gradlew가 저장소에 100644(비실행)로 들어 있어 Dockerfile과 CI 양쪽에 chmod +x를 넣었고(없으면 리눅스에서 permission denied), 산출물은 find로 -plain.jar를 걸러 /workspace/app.jar 고정 경로로 옮겨 버전 변경·bootJar→build 교체에도 COPY가 깨지지 않게 했다. 실행 스테이지는 uid 1001 non-root에 TZ=Asia/Seoul(스케줄러는 zone을 명시하지만 로그 타임스탬프가 UTC면 새벽 장애를 읽기 어렵다)이다. compose는 postgres:16-alpine + pg_isready healthcheck에 depends_on: service_healthy로 app 기동 순서를 강제하고, 볼륨으로 발송 이력을 영속화하며 restart: unless-stopped로 재부팅 후 자동 기동된다. 시크릿은 전부 ${VAR:-} 참조라 application.yml과 커밋되는 파일 어디에도 실제 값이 없고(.env는 이미 .gitignore에 있으며 .dockerignore로 이미지 레이어 유입도 막았다), :- 기본값을 둔 것은 .env 없이 docker compose config가 통과해야 하기 때문이다. CI는 push·pull_request에서 ubuntu-latest + temurin 21 + setup-gradle 캐시로 ./gradlew build만 돌리고 테스트 리포트를 if: always()로 업로드한다 — 이미지 빌드·배포 job은 두지 않았다(PRD MVP 제외, 러너 x86_64 vs 서버 ARM64). README는 배지·URL/스크린샷 자리·파이프라인 텍스트 다이어그램·스택표·설계 결정 4건(ADR-006/017/014·018/011)·로컬 실행·테스트 실행을 담았다. AC 3종(gradlew build / docker build / docker compose config) 전부 통과했고, 추가로 compose up으로 Flyway 마이그레이션·기동·랜딩·아카이브 200을 확인한 뒤 down -v로 정리했다(전체 302건 통과)."
+    }
+  ],
+  "created_at": "2026-08-06T04:33:18+0900",
+  "completed_at": "2026-08-06T17:10:28+0900"
 }
