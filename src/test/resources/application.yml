@@ -25,3 +25,7 @@ ainewsdigest:
       ## 테스트에서 폴러가 뜨면 백그라운드 스레드가 실제 텔레그램 API를 때린다.
       ## @SpringBootTest 컨텍스트마다 하나씩 붙어 테스트를 불안정하게 만든다. 반드시 끈다.
       enabled: false
+  scheduler:
+    ## 같은 이유로 배치도 끈다. 테스트 도중 07:00이 지나면 실제 OpenAI·텔레그램 호출이 나간다.
+    ## DigestScheduler의 @ConditionalOnProperty가 이 값을 읽는다.
+    enabled: false

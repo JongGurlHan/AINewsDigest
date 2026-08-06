@@ -1,5 +1,6 @@
 package com.example.ainewsdigest.delivery;
 
+import com.example.ainewsdigest.global.AdminNotifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -57,6 +58,8 @@ public class TelegramUpdatePoller implements SmartLifecycle {
 
 	private final Sleeper sleeper;
 
+	private final AdminNotifier notifier;
+
 	private volatile boolean running;
 
 	private ExecutorService executor;
@@ -69,12 +72,13 @@ public class TelegramUpdatePoller implements SmartLifecycle {
 	private boolean alerted;
 
 	public TelegramUpdatePoller(UpdateSource updateSource, BotCommandHandler handler, PollingProperties polling,
-			TelegramProperties telegram, Sleeper sleeper) {
+			TelegramProperties telegram, Sleeper sleeper, AdminNotifier notifier) {
 		this.updateSource = updateSource;
 		this.handler = handler;
 		this.polling = polling;
 		this.telegram = telegram;
 		this.sleeper = sleeper;
+		this.notifier = notifier;
 	}
 
 	/** 데몬 스레드 하나로 돈다. 폴링이 JVM 종료를 붙잡지 않게 한다. */
@@ -182,11 +186,14 @@ public class TelegramUpdatePoller implements SmartLifecycle {
 	}
 
 	/**
-	 * 임계값에 도달한 <b>순간 한 번만</b> 남긴다. 복구될 때까지 매 사이클 남기면 장애 중에 로그가 쏟아져
+	 * 임계값에 도달한 <b>순간 한 번만</b> 남긴다. 복구될 때까지 매 사이클 알리면 장애 중에 알림이 쏟아져
 	 * 그 자체가 2차 장애가 된다. 복구되면({@code Updates} 수신) 플래그가 내려가 다음 장애에 다시 울린다.
 	 *
-	 * <p>step 11이 이 지점을 {@code AdminNotifier}로 연결한다. "언제 알릴 것인가"의 판정은 여기서 끝나 있고
-	 * 알림 채널만 붙이면 된다.
+	 * <p>"언제 알릴 것인가"의 판정은 전부 이 메서드 안에서 끝난다. {@link AdminNotifier}는 채널일 뿐이므로
+	 * 저쪽에 억제 로직을 또 두지 않는다 — 두 벌이 되면 어느 쪽이 침묵시켰는지 알 수 없게 된다.
+	 *
+	 * <p>{@code reason}은 {@code TelegramClient}가 마스킹한 문자열이다. 봇 토큰이 그대로 관리자 방에
+	 * 발송되지 않는 근거가 그쪽에 있다.
 	 */
 	private void alertOnce(String reason) {
 		if (this.alerted || this.consecutiveFailures < this.polling.alertThreshold()) {
@@ -195,6 +202,9 @@ public class TelegramUpdatePoller implements SmartLifecycle {
 		this.alerted = true;
 		log.error("텔레그램 폴링이 {}회 연속 실패했다. 구독 접수가 멈춰 있다. 마지막 사유: {}",
 				this.consecutiveFailures, reason);
+		this.notifier.notifyFailure("텔레그램 폴링 연속 실패",
+				"폴링이 " + this.consecutiveFailures + "회 연속 실패했다. 구독 접수(/start)가 멈춰 있다.\n"
+						+ "마지막 사유: " + reason);
 	}
 
 	private Duration backoff() {

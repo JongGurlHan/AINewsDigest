@@ -116,6 +116,16 @@ ainewsdigest:
     # 꽉 채우면 이모지 하나 늘어난 날 발송 전체가 400으로 실패한다.
     max-visible-length: 4000
     empty-text: "오늘의 AI 뉴스는 없습니다."
+  scheduler:
+    # 07:00 생성 / 07:15 재시도 / 07:30 발송. 테스트 설정에서는 false다 —
+    # 테스트 중에 배치가 돌면 실제 OpenAI·텔레그램 API를 때린다.
+    # cron과 zone은 여기 두지 않는다. @Scheduled 리터럴을 읽는 코드만 있으면 되고,
+    # 아무도 읽지 않는 설정 키는 죽은 키다.
+    enabled: true
+  ops:
+    # 발송 성공 시에만 GET 하는 데드맨스위치 (ADR-010). 비어 있으면 핑을 보내지 않는다.
+    # "뉴스 없음"이 정상 동작이라 침묵과 장애가 구분되지 않는다 — 이 역방향 감시가 그 사각지대를 메운다.
+    healthcheck-url: ${HEALTHCHECK_URL:}
 
 # spring.thymeleaf.cache 는 두지 않는다. 이 파일은 운영 설정이고,
 # 끄면 매 요청마다 템플릿을 다시 파싱한다. 개발 중 핫리로드가 필요하면

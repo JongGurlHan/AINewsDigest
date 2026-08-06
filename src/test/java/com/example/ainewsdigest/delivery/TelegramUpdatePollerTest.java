@@ -3,6 +3,7 @@ package com.example.ainewsdigest.delivery;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.example.ainewsdigest.global.AdminNotifier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +32,8 @@ class TelegramUpdatePollerTest {
 	private final RecordingSleeper sleeper = new RecordingSleeper();
 
 	private final RecordingHandler handler = new RecordingHandler();
+
+	private final RecordingNotifier notifier = new RecordingNotifier();
 
 	private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
 
@@ -133,6 +136,9 @@ class TelegramUpdatePollerTest {
 
 	/**
 	 * 장애 중에 로그·알림이 쏟아지면 그게 또 다른 장애다. 임계값 도달 시 1회, 복구 후 재도달 시 다시 1회.
+	 *
+	 * <p>관리자 알림도 같은 판정을 따른다 — "1회만"은 여기 한 곳에만 있고 {@code AdminNotifier}에는
+	 * 억제 로직이 없다.
 	 */
 	@Test
 	void alertsOncePerOutage() {
@@ -143,17 +149,20 @@ class TelegramUpdatePollerTest {
 			poller.pollOnce();
 		}
 		assertEquals(1, errorLogCount(), () -> "ERROR 로그: " + errorMessages());
+		assertEquals(1, this.notifier.count());
 
 		// 복구되면 카운터와 플래그가 함께 내려간다.
 		this.source.enqueue(updates(40L));
 		poller.pollOnce();
 		assertEquals(1, errorLogCount());
+		assertEquals(1, this.notifier.count());
 
 		this.source.enqueueFailures(3);
 		for (int cycle = 0; cycle < 3; cycle++) {
 			poller.pollOnce();
 		}
 		assertEquals(2, errorLogCount(), () -> "ERROR 로그: " + errorMessages());
+		assertEquals(2, this.notifier.count());
 	}
 
 	/** 임계값에 닿기 전에는 조용해야 한다. */
@@ -166,6 +175,7 @@ class TelegramUpdatePollerTest {
 		poller.pollOnce();
 
 		assertEquals(0, errorLogCount(), () -> "ERROR 로그: " + errorMessages());
+		assertEquals(0, this.notifier.count());
 		assertEquals(2, this.sleeper.slept().size());
 	}
 
@@ -176,7 +186,7 @@ class TelegramUpdatePollerTest {
 	private TelegramUpdatePoller poller(int alertThreshold) {
 		return new TelegramUpdatePoller(this.source, this.handler,
 				new PollingProperties(true, BACKOFF, MAX_BACKOFF, alertThreshold),
-				new TelegramProperties(null, null, null, null, null), this.sleeper);
+				new TelegramProperties(null, null, null, null, null), this.sleeper, this.notifier);
 	}
 
 	private static PollResult updates(long... updateIds) {
@@ -224,6 +234,25 @@ class TelegramUpdatePollerTest {
 			this.requestedOffsets.add(offset);
 			PollResult next = this.scripted.poll();
 			return (next != null) ? next : new PollResult.Updates(List.of());
+		}
+	}
+
+	/** 알림 채널은 여기서 검증 대상이 아니다. 몇 번 불렸는지만 센다. */
+	private static final class RecordingNotifier extends AdminNotifier {
+
+		private int count;
+
+		RecordingNotifier() {
+			super(null, null);
+		}
+
+		int count() {
+			return this.count;
+		}
+
+		@Override
+		public void notifyFailure(String title, String detail) {
+			this.count++;
 		}
 	}
 
