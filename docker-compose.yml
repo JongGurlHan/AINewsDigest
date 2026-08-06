@@ -1,0 +1,56 @@
+# 운영 서버(Oracle Cloud Always Free ARM64)와 로컬에서 같은 구성으로 띄운다 (ADR-001).
+# 값은 전부 .env에서 읽는다. .env.example을 복사해 채운 뒤 `docker compose up -d`.
+#
+# 변수에 `:-` 기본값을 둔 것은 .env 없이도 `docker compose config`가 통과해야 하기 때문이다.
+# 시크릿의 기본값은 빈 문자열이며, 비어 있으면 해당 기능(요약·발송·핑)이 동작하지 않는다.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      # DB 이름은 변수로 빼지 않는다. 바꾸면 DB_URL의 경로와 반드시 함께 바꿔야 하는데,
+      # 한쪽만 바뀌면 앱이 없는 DB에 붙어 기동에 실패한다.
+      POSTGRES_DB: ainewsdigest
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    volumes:
+      # 컨테이너를 지워도 구독자와 발송 이력은 남아야 한다.
+      # 아카이브(/archive)가 통째로 사라지고 구독자 전원이 유실되는 것과 같다.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # app이 db보다 먼저 떠서 커넥션 실패로 죽는 것을 막는 근거가 이 검사다.
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ainewsdigest"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        # 컨테이너가 "시작됨"이 아니라 "접속 가능"이 될 때까지 기다린다.
+        condition: service_healthy
+    # 서버 재부팅 후 사람이 SSH로 들어가 올리지 않아도 다시 뜬다.
+    # 매일 아침 자동으로 돌아야 하는 서비스라 수동 기동에 의존할 수 없다.
+    restart: unless-stopped
+    environment:
+      # 호스트는 localhost가 아니라 compose 네트워크의 서비스명 db다.
+      DB_URL: ${DB_URL:-jdbc:postgresql://db:5432/ainewsdigest}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      # 아래 넷은 시크릿이다. application.yml에 기본값을 두지 않고 여기로만 주입한다.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
+      HEALTHCHECK_URL: ${HEALTHCHECK_URL:-}
+      # 랜딩의 구독 딥링크에 박히는 공개값이다 (ADR-003).
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-ainewsdigest_bot}
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
