@@ -26,6 +26,35 @@ spring:
       # "다이제스트 없음" 오탐이 난다.
       pool:
         size: 1
+  http:
+    client:
+      # 전역 기본값일 뿐이다. 어댑터는 각자 생성자에서 read timeout을 지정한다 —
+      # 롱폴링 40s / LLM 60s / 수집 10s라 전역값 하나로 맞출 수 없다 (ADR-015).
+      # 주의: Boot 4.0에서 이 prefix는 spring.http.clients.* 로 이름이 바뀌며 deprecated 됐다.
+      connect-timeout: 5s
+      read-timeout: 10s
+
+ainewsdigest:
+  collect:
+    # 소스 URL을 코드에 하드코딩하지 않는다. 설정으로 빼야 소스 추가·교체가 재빌드 없이 가능하다.
+    hacker-news:
+      base-url: https://hn.algolia.com/api/v1
+      min-points: 30
+      hits-per-page: 40
+      keywords:
+        - claude code
+        - codex
+        - cursor
+        - LLM
+        - AI coding
+    rss:
+      feeds:
+        - name: OpenAI
+          url: https://openai.com/news/rss.xml
+        - name: Simon Willison
+          url: https://simonwillison.net/atom/everything/
+    changelog:
+      url: https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md
 
 # spring.thymeleaf.cache 는 두지 않는다. 이 파일은 운영 설정이고,
 # 끄면 매 요청마다 템플릿을 다시 파싱한다. 개발 중 핫리로드가 필요하면

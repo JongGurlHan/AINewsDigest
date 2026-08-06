@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Simon Willison's Weblog</title>
+  <link href="https://simonwillison.net/" rel="alternate"/>
+  <id>tag:simonwillison.net,2026:/</id>
+  <updated>2026-08-05T12:00:00Z</updated>
+  <entry>
+    <title>Notes on running coding agents locally</title>
+    <link href="https://simonwillison.net/2026/Aug/5/coding-agents-locally/" rel="alternate"/>
+    <id>tag:simonwillison.net,2026:/2026/Aug/5/coding-agents-locally/</id>
+    <updated>2026-08-05T12:00:00Z</updated>
+    <content type="html">A writeup of what worked and what did not.</content>
+  </entry>
+  <entry>
+    <title>An entry from years ago</title>
+    <link href="https://simonwillison.net/2019/Jan/2/an-old-entry/" rel="alternate"/>
+    <id>tag:simonwillison.net,2019:/2019/Jan/2/an-old-entry/</id>
+    <updated>2019-01-02T10:00:00Z</updated>
+    <content type="html">Should be filtered out by the since parameter.</content>
+  </entry>
+</feed>

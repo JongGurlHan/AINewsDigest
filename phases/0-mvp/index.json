@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "collect-sources",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-06T04:59:49+0900",
+      "completed_at": "2026-08-06T15:00:41+0900",
+      "summary": "collect 패키지에 NewsSource 포트와 FetchResult(articles, failed)·CandidateArticle.of(스킴·제목·도메인 100자 검증) 값 객체를 추가하고, HackerNewsClient(키워드별 호출 후 normalizedUrl 기준 병합, url null hit 제외)·RssFeedClient(rome으로 RSS2.0/Atom, allowDoctypes 기본값 유지, 피드 부분 실패는 partial)·ChangelogClient(최신 버전 섹션 1건, ?v=<version>으로 중복 제거 회피, 버전 파싱 실패는 failure) 3종을 구현했다. 타임아웃은 어댑터 생성자에서 HttpClientSettings.withReadTimeout(10s)로 지정하고 설정은 @ConfigurationProperties 3종으로 바인딩했다. WireMock 기반 단위 테스트 29건으로 검증했다(전체 89건 통과)."
     },
     {
       "step": 3,
