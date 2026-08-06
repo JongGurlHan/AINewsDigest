@@ -14,11 +14,18 @@ import java.util.List;
  * 위한 것이다.
  *
  * <pre>
- * java -jar app.jar --ainewsdigest.run=generate
- * java -jar app.jar --ainewsdigest.run=send
+ * java -jar app.jar --ainewsdigest.run=generate --ainewsdigest.telegram.polling.enabled=false
+ * java -jar app.jar --ainewsdigest.run=send --ainewsdigest.telegram.polling.enabled=false
  * </pre>
  *
  * <p>인자가 없으면 아무것도 하지 않고 평소처럼 서버로 뜬다.
+ *
+ * <h2>폴링을 함께 끈다</h2>
+ * 운영 인스턴스가 떠 있는 상태에서 이 실행을 걸면 <b>봇 토큰 하나에 폴러가 둘</b>이 된다. 텔레그램
+ * {@code getUpdates}는 그때 양쪽 모두에 409 {@code Conflict: terminated by other getUpdates request}를
+ * 돌려주므로, 수동 복구가 도는 동안 구독 명령({@code /start}·{@code /stop})이 처리되지 않는다.
+ * {@code TelegramUpdatePoller}는 단발 실패를 로그로 남기지 않고 연속 {@code alert-threshold}회에
+ * 도달해야 알리므로 이 고장은 조용히 지나간다 — 그래서 인자로 미리 끈다.
  *
  * <h2>HTTP 엔드포인트로 만들지 않는다</h2>
  * 이 앱에는 인증이 없다(Spring Security는 MVP 제외 사항이다). 배치를 트리거하는 엔드포인트를 열면

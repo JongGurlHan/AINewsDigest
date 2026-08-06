@@ -115,13 +115,25 @@ docker compose up -d --build
 스케줄을 기다리지 않고 한 번만 실행한다. 스케줄 실행과 같은 경로(날짜·알림·핑 규칙 포함)를 탄다.
 
 ```bash
-docker compose run --rm app --ainewsdigest.run=generate
-docker compose run --rm app --ainewsdigest.run=send
+docker compose run --rm app --ainewsdigest.run=generate --ainewsdigest.telegram.polling.enabled=false
+docker compose run --rm app --ainewsdigest.run=send --ainewsdigest.telegram.polling.enabled=false
 ```
 
 인자는 ENTRYPOINT(`java -jar /app/app.jar`) 뒤에 붙는다. 이 컨테이너는 포트를 게시하지 않으므로
 운영 인스턴스가 떠 있어도 충돌하지 않는다. 작업이 끝나도 웹 서버로 계속 살아 있으니
 로그로 결과를 확인한 뒤 `Ctrl-C`로 끝낸다.
+
+**폴링을 끄는 인자를 빠뜨리지 말 것.** 텔레그램 `getUpdates`는 같은 봇 토큰으로 두 프로세스가
+동시에 붙으면 양쪽 모두에 409를 돌려준다:
+
+```
+{"ok":false,"error_code":409,
+ "description":"Conflict: terminated by other getUpdates request; ..."}
+```
+
+운영 인스턴스의 폴러와 이 일회성 컨테이너의 폴러가 서로를 끊어 구독 명령(`/start`·`/stop`)이
+그동안 처리되지 않는다. 게다가 폴러는 단발 실패를 로그로 남기지 않고 연속 20회(약 10분)에
+도달해야 ERROR를 내므로, 조용히 죽은 채로 지나간다.
 
 ### 컨테이너 없이 실행
 
