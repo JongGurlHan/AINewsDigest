@@ -161,9 +161,22 @@ Docker Desktop이 떠 있어야 한다 — 테스트가 PostgreSQL 컨테이너�
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 패키지 구조, 데이터 흐름, 트랜잭션 경계
 - [docs/ADR.md](docs/ADR.md) — 설계 결정과 트레이드오프 18건
 - [docs/UI_GUIDE.md](docs/UI_GUIDE.md) — 다크모드 팔레트와 안티패턴
+- [docs/DEPLOY.md](docs/DEPLOY.md) — Oracle Cloud 배포·운영 런북
 
 ## 배포
 
-Oracle Cloud Always Free(ARM64) 인스턴스에 위 `docker compose up -d --build`를 그대로 쓴다.
+전체 절차는 [docs/DEPLOY.md](docs/DEPLOY.md)에 있다 — OCI 테넌시 준비부터 백업·장애 대응까지.
+
+Oracle Cloud Always Free(ARM64) 인스턴스 한 대에 앱·PostgreSQL·Caddy를 Compose로 올린다.
+운영에서는 프로덕션 오버라이드를 얹어 Caddy가 80/443을 받고 Let's Encrypt 인증서를 자동 발급한다.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+앱의 8080은 로컬·운영 모두 `127.0.0.1`에만 묶는다. Spring Security가 없어(MVP 제외) 외부에
+열리는 순간 익명 공개이고, Docker가 게시한 포트는 호스트 방화벽을 우회해 서버 쪽에서
+막아줄 수도 없다. 외부 트래픽은 Caddy만 받는다.
+
 **자동 배포(CD)는 MVP 범위 밖이다** — CI는 테스트만 돌리고, 배포는 서버에서 수동으로 실행한다.
 GitHub Actions 러너는 x86_64인데 운영 서버는 ARM64라 이미지 배포에는 크로스 빌드가 따로 필요하다.

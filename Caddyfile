@@ -1,0 +1,33 @@
+# 랜딩·아카이브(ADR-004)를 HTTPS로 공개하기 위한 리버스 프록시.
+# docker-compose.prod.yml의 caddy 서비스가 이 파일을 읽는다.
+#
+# 텔레그램은 롱폴링이라 인바운드가 필요 없다(ADR-008). 이 프록시가 여는 80/443은
+# 오직 웹 화면을 위한 것이다. 앱의 8080은 절대 외부로 열지 않는다 —
+# Spring Security가 없어(PRD MVP 제외) 열리는 즉시 익명 공개다.
+
+# DOMAIN은 .env에서 온다. 비어 있으면 Caddy가 기동에 실패한다 — 그게 맞다.
+# 도메인 없이 뜨면 인증서 없이 열린 프록시가 되어 조용히 잘못 동작한다.
+{$DOMAIN} {
+	# 응답 압축. Thymeleaf SSR이라 본문이 전부 텍스트다.
+	encode zstd gzip
+
+	# app은 compose 네트워크의 서비스명이다. 앱 컨테이너가 포트를 게시하지 않아도 도달한다.
+	reverse_proxy app:8080
+
+	header {
+		# 이 사이트는 HTTPS로만 서비스한다. 첫 접속 이후 브라우저가 http를 시도하지 않는다.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# 서버 소프트웨어를 광고하지 않는다.
+		-Server
+	}
+}
+
+# 인증서는 Caddy가 Let's Encrypt에서 자동 발급·갱신한다. 설정할 것이 없다.
+# 단 compose의 caddy_data 볼륨을 지우지 말 것 — 계정 키와 인증서가 거기 있고,
+# 지우면 재기동마다 재발급을 시도해 Let's Encrypt rate limit(도메인당 주 5회)에 걸린다.
+#
+# ZeroSSL 폴백까지 쓰려면 이 파일 맨 위에 전역 옵션 블록으로 이메일을 추가한다:
+#   { email you@example.com }
+# Let's Encrypt만으로 충분하므로 기본값에서는 두지 않는다.

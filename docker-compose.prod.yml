@@ -1,0 +1,45 @@
+# 운영 서버(Oracle Cloud) 전용 오버라이드. 로컬에서는 쓰지 않는다.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# 기본 파일과의 차이는 둘뿐이다: HTTPS 리버스 프록시와 로그 로테이션.
+# 앱·DB 설정은 로컬과 동일하게 유지한다 — 운영에서만 다른 설정은 로컬에서 검증되지 않는다.
+
+services:
+  db:
+    logging: &logging
+      # 부트 볼륨은 50GB다. 기본 json-file 드라이버는 무한히 커지므로
+      # 상한을 두지 않으면 언젠가 디스크가 차서 DB가 쓰기에 실패한다.
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  app:
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      # OCI Security List에서 열어야 하는 포트도 이 둘뿐이다.
+      # 주의: Docker가 게시한 포트는 호스트 iptables의 INPUT 체인을 우회한다
+      # (nat/PREROUTING DNAT + FORWARD 경로). Security List만 열면 바로 접속된다.
+      - "80:80"
+      - "443:443"
+    environment:
+      # Caddyfile의 사이트 주소. 비어 있으면 기동에 실패한다 — 의도된 동작이다.
+      DOMAIN: ${DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 인증서와 ACME 계정 키가 여기 있다. 지우면 재발급을 시도해
+      # Let's Encrypt rate limit(도메인당 주 5회)에 걸린다.
+      - caddy_data:/data
+      - caddy_config:/config
+    logging: *logging
+
+volumes:
+  caddy_data:
+  caddy_config:
