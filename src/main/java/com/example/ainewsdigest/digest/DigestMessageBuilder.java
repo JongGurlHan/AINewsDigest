@@ -10,6 +10,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * 요약 결과를 텔레그램 HTML 메시지 한 덩어리로 조립한다 (ADR-009).
@@ -38,6 +39,17 @@ public class DigestMessageBuilder {
 	private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy년 M월 d일", Locale.KOREA);
 
 	private static final String HEADER = "오늘의 AI 뉴스";
+
+	/** 불릿은 텔레그램이 지원하는 태그가 아니라 그냥 글자다. HTML {@code <ul>}은 무시되고 사라진다. */
+	private static final String BULLET = "• ";
+
+	private static final String SOURCE_PREFIX = "출처: ";
+
+	/** 불릿 한 개는 한 줄이어야 한다. 요약 안의 줄바꿈·연속 공백은 한 칸으로 눌러 붙인다. */
+	private static final Pattern WHITESPACE_RUN = Pattern.compile("\\s+");
+
+	/** 모델이 스스로 붙인 리스트 마커. 그대로 두면 {@code • - 내용}이 된다. */
+	private static final Pattern LEADING_LIST_MARKER = Pattern.compile("^[-*•·]+\\s*");
 
 	private final MessageProperties properties;
 
@@ -119,8 +131,9 @@ public class DigestMessageBuilder {
 	 * &lt;b&gt;오늘의 AI 뉴스&lt;/b&gt; · 2026년 8월 5일
 	 *
 	 * &lt;b&gt;1. {titleKo}&lt;/b&gt;
-	 * {summaryKo}
-	 * &lt;a href="{url}"&gt;{sourceDomain}&lt;/a&gt;
+	 * • {요약 첫 문장}
+	 * • {요약 둘째 문장}
+	 * 출처: &lt;a href="{url}"&gt;{sourceDomain}&lt;/a&gt;
 	 * </pre>
 	 *
 	 * 줄바꿈은 {@code \n}이다. 텔레그램은 {@code <br>}를 지원하지 않는다.
@@ -140,12 +153,76 @@ public class DigestMessageBuilder {
 			writer.tag("<b>");
 			writer.text((index + 1) + ". " + article.titleKo());
 			writer.tag("</b>");
-			writer.text("\n" + article.summaryKo() + "\n");
+			writer.text("\n");
+			for (String line : bulletLines(article.summaryKo())) {
+				writer.text(BULLET + line + "\n");
+			}
 			// 링크는 LLM이 아니라 우리가 붙인다. 원문 URL을 쓰고 화면에는 도메인만 노출한다 (ADR-009).
 			// normalizedUrl은 중복 판정용이라 추적 파라미터가 제거된 값이다. 클릭 대상은 원문이어야 한다.
+			// "출처: "는 링크 밖에 둔다 — 안에 넣으면 라벨까지 파랗게 물들고 탭 영역이 넓어진다.
+			writer.text(SOURCE_PREFIX);
 			writer.link(article.article().url(), article.article().sourceDomain());
 		}
 		return new DigestMessage(writer.html(), writer.visibleLength(), articles.size(), List.copyOf(articles));
+	}
+
+	/**
+	 * 요약 한 덩어리를 불릿 한 줄씩으로 쪼갠다. 문장 부호가 하나도 없으면 통째로 한 줄이다.
+	 *
+	 * <p><b>마침표만 보고 자르면 안 된다.</b> 요약에는 고유명사가 원문 표기로 들어오고
+	 * ({@code 0.6B/1.3B}, {@code setup.sh}, {@code leansearch.net}) 그 점들은 문장 끝이 아니다.
+	 * 문장 끝의 조건은 "문장 부호 뒤가 공백이거나 문자열의 끝"이다 — 위 세 경우는 모두 뒤에 글자가 붙어 있다.
+	 *
+	 * <p>반환하는 각 줄에는 줄바꿈이 없다. 요약 안에 들어온 줄바꿈을 그대로 두면 불릿 하나가 두 줄로
+	 * 흐르면서 들여쓰기가 어긋나 오히려 읽기 어려워진다.
+	 */
+	private static List<String> bulletLines(String summary) {
+		if (summary == null || summary.isBlank()) {
+			return List.of();
+		}
+		List<String> lines = new ArrayList<>();
+		int start = 0;
+		int cursor = 0;
+		while (cursor < summary.length()) {
+			if (!isSentenceEnd(summary.charAt(cursor))) {
+				cursor++;
+				continue;
+			}
+			// "...!?" 처럼 이어진 부호와 그 뒤의 닫는 괄호·인용부호까지 한 문장으로 묶는다.
+			int end = cursor + 1;
+			while (end < summary.length() && isSentenceEnd(summary.charAt(end))) {
+				end++;
+			}
+			while (end < summary.length() && isCloser(summary.charAt(end))) {
+				end++;
+			}
+			if (end < summary.length() && !Character.isWhitespace(summary.charAt(end))) {
+				cursor = end;
+				continue;
+			}
+			addLine(lines, summary.substring(start, end));
+			start = end;
+			cursor = end;
+		}
+		addLine(lines, summary.substring(start));
+		return lines;
+	}
+
+	private static void addLine(List<String> lines, String sentence) {
+		String line = LEADING_LIST_MARKER.matcher(WHITESPACE_RUN.matcher(sentence).replaceAll(" ").strip())
+				.replaceFirst("");
+		if (!line.isEmpty()) {
+			lines.add(line);
+		}
+	}
+
+	private static boolean isSentenceEnd(char character) {
+		return character == '.' || character == '!' || character == '?' || character == '…';
+	}
+
+	private static boolean isCloser(char character) {
+		return character == ')' || character == ']' || character == '"' || character == '\''
+				|| character == '”' || character == '’' || character == '」' || character == '』';
 	}
 
 	/**

@@ -50,7 +50,11 @@ services:
       # 랜딩의 구독 딥링크에 박히는 공개값이다 (ADR-003).
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-ainewsdigest_bot}
     ports:
-      - "8080:8080"
+      # 루프백에만 묶는다. 이 앱에는 Spring Security도 인증도 없어(PRD MVP 제외)
+      # 8080이 외부에 열리는 순간 그대로 익명 공개다. 게다가 Docker가 게시한 포트는
+      # 호스트 방화벽(iptables INPUT)을 우회하므로 서버 쪽에서 막아줄 수도 없다.
+      # 운영에서는 Caddy가 compose 네트워크로 app:8080에 붙는다(docker-compose.prod.yml).
+      - "127.0.0.1:8080:8080"
 
 volumes:
   pgdata:
