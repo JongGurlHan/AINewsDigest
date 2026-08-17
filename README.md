@@ -4,15 +4,19 @@
 
 개발자가 알아두면 좋은 AI 소식 3~5건을 매일 오전 7시 30분(KST) 텔레그램으로 한글 요약해 보내는 뉴스 다이제스트 서비스.
 
-- 서비스: `http://<배포-후-채울-주소>/` <!-- TODO: 배포 후 실제 주소로 교체 -->
+- 서비스: https://ainewsdigest.site
 - 구독: `https://t.me/ainewsdigest_bot?start=web` — 봇에게 `/start`를 보내면 그 자리에서 구독된다
 
 ## 화면
 
-<!-- TODO: 배포 후 실제 화면으로 교체 -->
-| 랜딩 (최신호) | 아카이브 | 텔레그램 발송 |
-|---|---|---|
-| ![landing](docs/images/landing.png) | ![archive](docs/images/archive.png) | ![telegram](docs/images/telegram.png) |
+| 랜딩 (최신호) | 아카이브 |
+|---|---|
+| ![랜딩 화면 — 최신호의 요약 카드 목록](docs/images/landing.png) | ![아카이브 화면 — 날짜별 다이제스트 목록](docs/images/archive.png) |
+
+매일 오전 7시 30분, 같은 내용이 텔레그램으로 나간다.
+
+<img src="docs/images/telegram.png" alt="텔레그램 발송 화면 — 번호가 매겨진 5건의 한글 요약과 출처 링크" width="420">
+
 
 ## 어떻게 동작하나
 
