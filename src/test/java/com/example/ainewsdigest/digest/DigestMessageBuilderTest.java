@@ -38,9 +38,12 @@ class DigestMessageBuilderTest {
 				article("셋째 소식", "셋째 요약이다.", "https://c.com/3", "c.com")));
 
 		assertTrue(message.html().startsWith("<b>오늘의 AI 뉴스</b> · 2026년 8월 5일"), message.html());
-		assertTrue(message.html().contains("<b>1. 첫 소식</b>\n첫 요약이다.\n<a href=\"https://a.com/1\">a.com</a>"));
-		assertTrue(message.html().contains("<b>2. 둘째 소식</b>\n둘째 요약이다.\n<a href=\"https://b.com/2\">b.com</a>"));
-		assertTrue(message.html().contains("<b>3. 셋째 소식</b>\n셋째 요약이다.\n<a href=\"https://c.com/3\">c.com</a>"));
+		assertTrue(message.html()
+				.contains("<b>1. 첫 소식</b>\n• 첫 요약이다.\n출처: <a href=\"https://a.com/1\">a.com</a>"));
+		assertTrue(message.html()
+				.contains("<b>2. 둘째 소식</b>\n• 둘째 요약이다.\n출처: <a href=\"https://b.com/2\">b.com</a>"));
+		assertTrue(message.html()
+				.contains("<b>3. 셋째 소식</b>\n• 셋째 요약이다.\n출처: <a href=\"https://c.com/3\">c.com</a>"));
 		assertEquals(3, message.includedCount());
 		assertEquals(3, message.includedArticles().size());
 	}
@@ -53,6 +56,60 @@ class DigestMessageBuilderTest {
 		assertEquals(0, message.includedCount());
 		assertTrue(message.includedArticles().isEmpty());
 		assertFalse(message.html().contains("<a "), "항목이 없으면 링크도 없다");
+	}
+
+	// --- 가독성: 불릿과 출처 표기 ----------------------------------------
+
+	@Test
+	void 요약을_문장마다_불릿_한_줄로_나눈다() {
+		DigestMessage message = this.builder
+				.build(DATE, List.of(article("제목", "첫 문장이다. 둘째 문장이다! 셋째 문장인가?")));
+
+		assertTrue(message.html().contains("\n• 첫 문장이다.\n• 둘째 문장이다!\n• 셋째 문장인가?\n"), message.html());
+	}
+
+	@Test
+	void 소수점과_파일명의_점은_문장_경계가_아니다() {
+		DigestMessage message = this.builder.build(DATE,
+				List.of(article("제목", "모델군(0.6B/1.3B/5B)을 비교했다. setup.sh가 런타임을 내려받는다.")));
+
+		assertTrue(message.html().contains("• 모델군(0.6B/1.3B/5B)을 비교했다.\n• setup.sh가 런타임을 내려받는다.\n"),
+				message.html());
+	}
+
+	@Test
+	void 문장부호가_없어도_한_줄_불릿으로_나간다() {
+		DigestMessage message = this.builder.build(DATE, List.of(article("제목", "마침표 없는 요약")));
+
+		assertTrue(message.html().contains("\n• 마침표 없는 요약\n"), message.html());
+	}
+
+	@Test
+	void 불릿_한_줄에_줄바꿈이나_중복_마커를_남기지_않는다() {
+		DigestMessage message = this.builder.build(DATE,
+				List.of(article("제목", "첫 문장이다.\n\n- 둘째 줄과\n이어진 줄이다.")));
+
+		assertTrue(message.html().contains("\n• 첫 문장이다.\n• 둘째 줄과 이어진 줄이다.\n"), message.html());
+		assertFalse(message.html().contains("• -"), "모델이 붙인 리스트 마커가 불릿과 겹치면 안 된다");
+	}
+
+	@Test
+	void 요약이_비면_불릿_줄이_없다() {
+		DigestMessage message = this.builder.build(DATE, List.of(article("제목", "")));
+
+		assertFalse(message.html().contains("•"), message.html());
+		assertTrue(message.html().contains("<b>1. 제목</b>\n출처: "), message.html());
+	}
+
+	@Test
+	void 링크_앞에_출처_표기가_붙는다() {
+		DigestMessage message = this.builder
+				.build(DATE, List.of(article("제목", "요약.", "https://cursor.com/blog/x", "cursor.com")));
+
+		assertTrue(message.html().contains("출처: <a href=\"https://cursor.com/blog/x\">cursor.com</a>"),
+				message.html());
+		// 클릭 영역은 도메인뿐이다. "출처:"까지 링크 안에 넣으면 텍스트가 파랗게 물든다
+		assertFalse(message.html().contains(">출처:"), message.html());
 	}
 
 	// --- 이스케이프 ------------------------------------------------------
@@ -91,7 +148,7 @@ class DigestMessageBuilderTest {
 
 		// MarkdownV2 감각으로 백슬래시를 넣으면 HTML 모드에서는 화면에 그대로 나온다
 		assertFalse(message.html().contains("\\"), message.html());
-		assertTrue(message.html().contains("요약이다. 끝!"));
+		assertTrue(message.html().contains("• 요약이다.\n• 끝!"), message.html());
 	}
 
 	// --- 길이 계산 -------------------------------------------------------
@@ -111,8 +168,9 @@ class DigestMessageBuilderTest {
 		DigestMessage message = this.builder.build(DATE, List.of(article("제목", "요약.")));
 
 		// 헤더: "오늘의 AI 뉴스"(9) + " · "(3) + "2026년 8월 5일"(11) = 23
-		// 항목: \n\n(2) + "1. "(3) + "제목"(2) + \n(1) + "요약."(3) + \n(1) + "example.com"(11) = 23
-		assertEquals(46, message.visibleLength());
+		// 항목: \n\n(2) + "1. "(3) + "제목"(2) + \n(1) + "• "(2) + "요약."(3) + \n(1)
+		//       + "출처: "(4) + "example.com"(11) = 29
+		assertEquals(52, message.visibleLength());
 		assertTrue(message.html().length() > message.visibleLength());
 	}
 
@@ -129,7 +187,7 @@ class DigestMessageBuilderTest {
 
 	@Test
 	void 상한을_넘으면_최하위_항목부터_제거한다() {
-		// 5건 × (제목 200 + 요약 600)이면 4,113자로 상한을 넘는다. 4건이면 3,295자로 들어간다.
+		// 5건 × (제목 200 + 요약 600)이면 4,143자로 상한을 넘는다. 4건이면 3,319자로 들어간다.
 		DigestMessage message = this.builder.build(DATE, fiveLongArticles());
 
 		assertEquals(4, message.includedCount());
